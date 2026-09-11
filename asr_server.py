@@ -28,7 +28,21 @@ import torch
 logger = logging.getLogger("asr_server")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
-MODEL_ID = "Qwen/Qwen3-ASR-0.6B-hf"
+MODEL_PRESETS = {
+    "0.6b": "Qwen/Qwen3-ASR-0.6B-hf",
+    "qwen3-asr-0.6b": "Qwen/Qwen3-ASR-0.6B-hf",
+    "1.7b": "Qwen/Qwen3-ASR-1.7B-hf",
+    "qwen3-asr-1.7b": "Qwen/Qwen3-ASR-1.7B-hf",
+}
+
+
+def resolve_model_id(model_name: str) -> str:
+    """Resolve a model preset alias or return the custom model ID/path directly."""
+    stripped = model_name.strip()
+    return MODEL_PRESETS.get(stripped.lower(), stripped)
+
+
+MODEL_ID = resolve_model_id(os.environ.get("MDD_ASR_MODEL", "Qwen3-ASR-0.6B"))
 _pipeline = None
 
 
@@ -70,7 +84,7 @@ app = FastAPI(
 @app.get("/health")
 async def health():
     """Health check endpoint."""
-    return {"status": "ok", "service": "qwen3-asr", "device": device}
+    return {"status": "ok", "service": "qwen3-asr", "model": MODEL_ID, "device": device}
 
 
 @app.post("/v1/audio/transcriptions")
@@ -117,6 +131,7 @@ async def transcribe(
 
 def parse_args(args: Optional[list[str]] = None) -> argparse.Namespace:
     """Parse command-line arguments for the ASR server."""
+    default_model = os.environ.get("MDD_ASR_MODEL", "Qwen3-ASR-0.6B")
     parser = argparse.ArgumentParser(description="Run Qwen3-ASR FastAPI Microservice")
     parser.add_argument("--host", type=str, default="0.0.0.0", help="Host address to bind (default: 0.0.0.0)")
     parser.add_argument("--port", type=int, default=8001, help="Port to bind (default: 8001)")
@@ -127,12 +142,22 @@ def parse_args(args: Optional[list[str]] = None) -> argparse.Namespace:
         help="Device to use: auto (cuda -> mps -> cpu), cuda, mps, cpu (default: auto)",
     )
     parser.add_argument(
+        "--model",
+        type=str,
+        default=None,
+        help=f"Model preset alias or Hugging Face model ID (default: {default_model})",
+    )
+    parser.add_argument(
         "--model-id",
         type=str,
-        default="Qwen/Qwen3-ASR-0.6B-hf",
-        help="Hugging Face model ID (default: Qwen/Qwen3-ASR-0.6B-hf)",
+        default=None,
+        help="Alias for --model",
     )
-    return parser.parse_args(args)
+    parsed = parser.parse_args(args)
+    chosen_model = parsed.model or parsed.model_id or default_model
+    parsed.model = chosen_model
+    parsed.model_id = resolve_model_id(chosen_model)
+    return parsed
 
 
 if __name__ == "__main__":

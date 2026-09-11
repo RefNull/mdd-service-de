@@ -74,13 +74,30 @@ pip install -r requirements.txt
 
 ## Quickstart / Running
 
-### 1. Standalone Microservices
+### 1. Combined Local Deployment (`serve.py`) [Recommended]
 
-Start each service independently in separate terminals:
+Launch both microservices together in a single command with unified signal handling and process supervision:
+
+```bash
+# Start both services (ASR on 8001, Pronunciation Assessment on 8002)
+python serve.py
+
+# Specify model preset (Qwen3-ASR-0.6B or Qwen3-ASR-1.7B)
+python serve.py --model Qwen3-ASR-1.7B
+
+# Run with custom ports, hardware device, or custom model checkpoint
+python serve.py --host 0.0.0.0 --asr-port 9001 --pronounce-port 9002 --device cuda --model your-org/custom-model
+```
+
+Both microservices run in isolated subprocesses to guarantee clean PyTorch CUDA contexts. Pressing `Ctrl+C` cleanly shuts down both processes without leaving orphaned GPU jobs.
+
+### 2. Standalone Microservices
+
+Alternatively, start each service independently in separate terminals:
 
 ```bash
 # Terminal 1: ASR Fluency Server (port 8001)
-python asr_server.py --host 0.0.0.0 --port 8001
+python asr_server.py --host 0.0.0.0 --port 8001 --model Qwen3-ASR-0.6B
 
 # Terminal 2: Pronunciation Assessment Server (port 8002)
 python pronounce_server.py --host 0.0.0.0 --port 8002
@@ -88,19 +105,28 @@ python pronounce_server.py --host 0.0.0.0 --port 8002
 
 Both servers support `--device` (`auto`, `cuda`, `mps`, or `cpu`).
 
-### 2. Managed Execution with `llama-swap`
+### 3. Managed Execution with `llama-swap`
 
-Run both microservices behind `llama-swap` for automated lifecycle and dynamic port assignment:
+Run microservices behind [`llama-swap`](https://github.com/mostlygeek/llama-swap) for on-demand VRAM model loading and automatic offloading:
 
 ```yaml
 # llama-swap.yaml
 models:
+  # Default 0.6B fluency model
   qwen3-asr:
-    cmd: python asr_server.py --port ${PORT}
+    cmd: python asr_server.py --port ${PORT} --model Qwen3-ASR-0.6B
     ttl: 3600
     healthCheckTimeout: 120
     checkEndpoint: /health
 
+  # Higher-capacity 1.7B fluency model
+  qwen3-asr-1.7b:
+    cmd: python asr_server.py --port ${PORT} --model Qwen3-ASR-1.7B
+    ttl: 3600
+    healthCheckTimeout: 180
+    checkEndpoint: /health
+
+  # Pronunciation assessment microservice
   openpronounce:
     cmd: python pronounce_server.py --port ${PORT}
     ttl: 3600
@@ -114,18 +140,18 @@ Launch the `llama-swap` daemon:
 llama-swap --config llama-swap.yaml --port 8080
 ```
 
-### 3. CLI Usage
+### 4. CLI Usage
 
-The CLI coordinates the two-step evaluation pipeline: first transcribing speech via ASR, then assessing phonetic pronunciation against the reference sentence.
+The interactive CLI coordinates the evaluation pipeline: capturing speech from the microphone, transcribing via ASR, and assessing pronunciation against the target sentence.
 
 #### Interactive Microphone Capture
 
 ```bash
-# Using llama-swap proxy (default)
-python cli.py --text "Ich habe morgen einen Termin beim Arzt."
-
-# Or querying microservices directly
+# Using combined deployment or direct microservices (default ports 8001 / 8002)
 python cli.py --direct --text "Ich habe morgen einen Termin beim Arzt."
+
+# Using llama-swap proxy
+python cli.py --text "Ich habe morgen einen Termin beim Arzt."
 ```
 
 Press **Enter** to start recording, speak the sentence, and press **Enter** again to stop.
@@ -136,6 +162,7 @@ Evaluate an existing `.wav` or `.ogg` audio file:
 
 ```bash
 python cli.py \
+  --direct \
   --audio-file sample.wav \
   --text "Ich habe morgen einen Termin beim Arzt."
 ```
@@ -145,12 +172,123 @@ python cli.py \
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--text` | `"Ich habe morgen einen Termin beim Arzt."` | Target German prompt sentence to evaluate against. |
-| `--router-url` | `http://localhost:8080` | `llama-swap` proxy URL. |
-| `--audio-file` | `None` | Path to audio file (`.wav` or `.ogg`) for non-interactive evaluation. |
 | `--direct` | `False` | Query microservice backends directly without `llama-swap`. |
 | `--asr-url` | `http://localhost:8001` | Direct URL for ASR server (when `--direct` is set). |
 | `--pronounce-url` | `http://localhost:8002` | Direct URL for Pronounce server (when `--direct` is set). |
+| `--router-url` | `http://localhost:8080` | `llama-swap` proxy URL (when `--direct` is false). |
+| `--audio-file` | `None` | Path to audio file (`.wav` or `.ogg`) for non-interactive evaluation. |
 | `--samplerate` | `16000` | Microphone capture sample rate in Hz. |
+
+---
+
+## Model Selection
+
+`mdd-service-de` supports standard presets and custom model backends for German ASR:
+
+| Selection | Identifier / Preset | Hugging Face Repository | Description |
+|---|---|---|---|
+| **0.6B (Default)** | `Qwen3-ASR-0.6B` or `0.6b` | `Qwen/Qwen3-ASR-0.6B-hf` | Lightweight, fast inference, small VRAM footprint. |
+| **1.7B** | `Qwen3-ASR-1.7B` or `1.7b` | `Qwen/Qwen3-ASR-1.7B-hf` | High-capacity model with improved transcription accuracy. |
+| **CUSTOM** | *Any string* | E.g. `your-org/custom-model` or `/path/to/local/model` | Direct passthrough to Hugging Face `transformers.pipeline`. |
+
+Model selection can be configured in three ways:
+1. CLI argument: `python serve.py --model Qwen3-ASR-1.7B` or `python asr_server.py --model Qwen3-ASR-1.7B`
+2. Environment variable: `export MDD_ASR_MODEL="Qwen3-ASR-1.7B"`
+3. In `llama-swap.yaml`: Route to either `qwen3-asr` or `qwen3-asr-1.7b`.
+
+---
+
+## Service Communication & API Integration
+
+### Architectural Decoupling
+
+The two microservices are **independent and decoupled**. They do not communicate directly with each other over the network:
+- `asr_server.py` performs general speech transcription and fluency validation.
+- `pronounce_server.py` performs phonetic alignment, scoring, and phoneme error detection.
+
+Client applications (such as web frontends, mobile language-learning apps like FreeLingo, or backend API gateways) coordinate both services as needed.
+
+### Client Integration Example (TypeScript / Web Frontend)
+
+In a web or mobile language learning client (e.g. FreeLingo):
+
+```typescript
+// 1. Send recorded audio for pronunciation assessment
+async function evaluatePronunciation(audioBlob: Blob, targetSentence: string) {
+  const formData = new FormData();
+  formData.append("file", audioBlob, "recording.wav");
+  formData.append("expected_text", targetSentence);
+  formData.append("lang", "de");
+
+  const response = await fetch("http://localhost:8002/assess", {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Pronunciation assessment failed: ${response.statusText}`);
+  }
+
+  const result = await response.json();
+  // Returns { score: 82.5, phoneme_error_rate: 0.175, transcription: "...", errors: [...] }
+  return result;
+}
+
+// 2. Optionally send recorded audio for open-ended ASR transcription
+async function transcribeSpeech(audioBlob: Blob) {
+  const formData = new FormData();
+  formData.append("file", audioBlob, "recording.wav");
+  formData.append("language", "de");
+
+  const response = await fetch("http://localhost:8001/v1/audio/transcriptions", {
+    method: "POST",
+    body: formData,
+  });
+
+  const result = await response.json();
+  // Returns { text: "Ich habe morgen einen Termin beim Arzt." }
+  return result.text;
+}
+```
+
+### Client Integration Example (Python)
+
+```python
+import httpx
+
+# Assess pronunciation
+with open("recording.wav", "rb") as f:
+    files = {"file": ("recording.wav", f, "audio/wav")}
+    data = {"expected_text": "Ich habe morgen einen Termin beim Arzt.", "lang": "de"}
+    response = httpx.post("http://localhost:8002/assess", data=data, files=files)
+    assessment = response.json()
+    print(f"Score: {assessment['score']}, PER: {assessment['phoneme_error_rate']}")
+
+# Transcribe audio via ASR
+with open("recording.wav", "rb") as f:
+    files = {"file": ("recording.wav", f, "audio/wav")}
+    data = {"language": "de"}
+    response = httpx.post("http://localhost:8001/v1/audio/transcriptions", data=data, files=files)
+    transcription = response.json()
+    print(f"Transcribed: {transcription['text']}")
+```
+
+---
+
+## Architectural Note: Why Not `Qwen3-ForcedAligner`?
+
+It is common to wonder why `mdd-service-de` does not use `Qwen3-ForcedAligner-0.6B` for pronunciation diagnosis.
+
+1. **What Forced Aligners Do**:
+   A forced aligner takes audio and a known reference text and outputs start and end timestamps ($\Delta t$) for each character or word. It **assumes the speaker pronounced the text correctly** and merely finds *when* each sound occurred in the audio timeline.
+2. **What MDD (Pronunciation Diagnosis) Requires**:
+   Mispronunciation Detection and Diagnosis (MDD) requires detecting **what the speaker actually said** versus **what they should have said**:
+   - Frame-level acoustic CTC phone posteriors (Wav2Vec2) capture the raw phones actually produced by the speaker without language model correction.
+   - Grapheme-to-Phoneme (G2P via `espeak-ng`) derives the canonical German IPA target.
+   - Dynamic Time Warping (DTW) and Levenshtein alignment compare canonical IPA with detected IPA, diagnosing substitutions (e.g. `[ɪ]` instead of `[iː]`), deletions, and insertions.
+   - Phoneme Error Rate (PER) and word-level confidence scores quantify pronunciation accuracy.
+
+Because a forced aligner cannot detect phoneme deviations or return heard IPA tokens, OpenPronounce's acoustic alignment pipeline is the correct tool for pronunciation diagnosis, while Qwen3-ASR provides natural speech transcription.
 
 ## API Reference
 
@@ -240,7 +378,7 @@ Run the test suite with `pytest`:
 pytest -v
 ```
 
-All 45 unit and integration tests run offline using mocks and synthetic in-memory audio without requiring GPU access or downloading heavy model weights.
+All 65 unit and integration tests run offline using mocks and synthetic in-memory audio without requiring GPU access or downloading heavy model weights.
 
 ## License
 

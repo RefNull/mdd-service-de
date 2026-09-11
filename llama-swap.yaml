@@ -1,10 +1,19 @@
 models:
+  # Default 0.6B fluency model
   qwen3-asr:
-    cmd: python asr_server.py --port ${PORT}
+    cmd: python asr_server.py --port ${PORT} --model Qwen3-ASR-0.6B
     ttl: 3600
     healthCheckTimeout: 120
     checkEndpoint: /health
 
+  # Higher-capacity 1.7B fluency model
+  qwen3-asr-1.7b:
+    cmd: python asr_server.py --port ${PORT} --model Qwen3-ASR-1.7B
+    ttl: 3600
+    healthCheckTimeout: 180
+    checkEndpoint: /health
+
+  # Pronunciation assessment microservice
   openpronounce:
     cmd: python pronounce_server.py --port ${PORT}
     ttl: 3600

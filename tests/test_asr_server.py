@@ -22,10 +22,12 @@ import torch
 os.environ["SKIP_MODEL_LOAD"] = "1"
 
 from asr_server import (
+    MODEL_ID,
     app,
     get_pipeline,
     parse_args,
     resolve_device_and_dtype,
+    resolve_model_id,
 )
 
 
@@ -71,6 +73,8 @@ def test_health_endpoint(client):
     assert "device" in data
     assert isinstance(data["device"], str)
     assert data["device"] in ("cuda", "mps", "cpu")
+    assert "model" in data
+    assert data["model"] == MODEL_ID
 
 
 def test_transcription_success(client, mock_pipeline, synthetic_wav_bytes):
@@ -173,8 +177,29 @@ def test_device_and_dtype_resolution():
         assert dt_auto == torch.float32
 
 
-def test_parse_args():
-    """Test CLI arguments parsing with default and custom values."""
+@pytest.mark.parametrize(
+    ("input_name", "expected_id"),
+    [
+        ("0.6B", "Qwen/Qwen3-ASR-0.6B-hf"),
+        ("0.6b", "Qwen/Qwen3-ASR-0.6B-hf"),
+        ("Qwen3-ASR-0.6B", "Qwen/Qwen3-ASR-0.6B-hf"),
+        ("qwen3-asr-0.6b", "Qwen/Qwen3-ASR-0.6B-hf"),
+        ("1.7B", "Qwen/Qwen3-ASR-1.7B-hf"),
+        ("1.7b", "Qwen/Qwen3-ASR-1.7B-hf"),
+        ("Qwen3-ASR-1.7B", "Qwen/Qwen3-ASR-1.7B-hf"),
+        ("qwen3-asr-1.7b", "Qwen/Qwen3-ASR-1.7B-hf"),
+        ("my-org/custom-model", "my-org/custom-model"),
+        ("  my-org/custom-model  ", "my-org/custom-model"),
+        ("/models/local-asr", "/models/local-asr"),
+    ],
+)
+def test_resolve_model_id(input_name, expected_id):
+    """Verify model resolution for presets, custom HF repo IDs, and local paths."""
+    assert resolve_model_id(input_name) == expected_id
+
+
+def test_parse_args(monkeypatch):
+    """Test CLI arguments parsing with default, preset, custom values, and env var."""
     defaults = parse_args([])
     assert defaults.host == "0.0.0.0"
     assert defaults.port == 8001
@@ -191,3 +216,13 @@ def test_parse_args():
     assert custom.port == 8081
     assert custom.device == "cuda"
     assert custom.model_id == "custom-org/custom-model"
+
+    preset = parse_args(["--model", "Qwen3-ASR-1.7B"])
+    assert preset.model_id == "Qwen/Qwen3-ASR-1.7B-hf"
+
+    custom_model = parse_args(["--model", "my-org/custom"])
+    assert custom_model.model_id == "my-org/custom"
+
+    monkeypatch.setenv("MDD_ASR_MODEL", "1.7b")
+    env_args = parse_args([])
+    assert env_args.model_id == "Qwen/Qwen3-ASR-1.7B-hf"

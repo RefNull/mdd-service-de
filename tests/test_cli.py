@@ -57,7 +57,7 @@ def test_parse_args_custom():
     """Verify custom CLI flags."""
     args = parse_args([
         "--text", "Wie heißen Sie?",
-        "--router-url", "http://192.168.1.100:8080",
+        "--router-url", "http://192.0.2.1:8080",
         "--audio-file", "samples/test.wav",
         "--direct",
         "--asr-url", "http://localhost:8010",
@@ -65,7 +65,7 @@ def test_parse_args_custom():
         "--samplerate", "48000",
     ])
     assert args.text == "Wie heißen Sie?"
-    assert args.router_url == "http://192.168.1.100:8080"
+    assert args.router_url == "http://192.0.2.1:8080"
     assert args.audio_file == "samples/test.wav"
     assert args.direct is True
     assert args.asr_url == "http://localhost:8010"

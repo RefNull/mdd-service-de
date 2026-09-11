@@ -26,15 +26,32 @@ venv/
 ENV/
 env/
 
-# Pytest / Coverage
+# Testing
 .pytest_cache/
 .coverage
 htmlcov/
+.tox/
+.nox/
 
-# macOS
+# IDEs & OS
+.idea/
+.vscode/
+*.swp
+*.swo
 .DS_Store
+Thumbs.db
 
-# Temporary files
-*.tmp
+# Audio & Temporary files
 *.wav
 *.ogg
+*.mp3
+*.flac
+*.tmp
+tmp/
+temp/
+
+# Model weights
+*.bin
+*.safetensors
+*.pt
+*.pth

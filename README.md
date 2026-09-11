@@ -242,4 +242,5 @@ All 45 unit and integration tests run offline using mocks and synthetic in-memor
 
 ## License
 
-[MIT](LICENSE)
+This project is licensed under the [MIT License](LICENSE).  
+For third-party dependencies, models, and system prerequisite licenses, see [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).

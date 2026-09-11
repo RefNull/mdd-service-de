@@ -11,32 +11,43 @@
 
 ## Architecture Overview
 
-`mdd-service-de` provides a dual microservice architecture designed for high-throughput speech assessment, proxied seamlessly by [`llama-swap`](https://github.com/mostlygeek/llama-swap) with an interactive terminal client (`cli.py`):
+`mdd-service-de` provides a dual microservice architecture designed for high-throughput German speech assessment. It supports single-command combined deployment (`serve.py`), standalone microservices, or dynamic VRAM proxying via [`llama-swap`](https://github.com/mostlygeek/llama-swap):
 
-- **ASR Fluency Service (`asr_server.py`)**: Hugging Face pipeline wrapping `Qwen/Qwen3-ASR-0.6B-hf` for real-time German transcription and fluency verification via an OpenAI-compatible endpoint.
-- **Pronunciation Assessment Service (`pronounce_server.py`)**: Headless phonetic aligner wrapping OpenPronounce (`Wav2Vec2` acoustic models + `espeak-ng` phonemizer) computing pronunciation score, Phoneme Error Rate (PER), and word-by-word expected vs. actual IPA transcriptions.
-- **Model Router (`llama-swap`)**: On-demand process manager and reverse proxy that loads model backends into VRAM on demand, offloading idle models after inactivity timeouts.
-- **Client (`cli.py`)**: Terminal workflow supporting live microphone capture (`sounddevice`) and batch audio evaluation (`--audio-file`).
+- **Combined Runner (`serve.py`)**: Recommended single-command supervisor launching and orchestrating both microservices in isolated subprocesses with unified signal handling and exit supervision.
+- **ASR Fluency Service (`asr_server.py`)**: Hugging Face pipeline supporting `Qwen3-ASR` presets (0.6B, 1.7B) and custom checkpoints for real-time German transcription via an OpenAI-compatible endpoint (`port 8001`).
+- **Pronunciation Assessment Service (`pronounce_server.py`)**: Headless phonetic aligner wrapping OpenPronounce (`Wav2Vec2` acoustic models + `espeak-ng` phonemizer) computing pronunciation scores, Phoneme Error Rates (PER), and word-level expected vs. actual IPA breakdowns (`port 8002`).
+- **Dynamic Proxy (`llama-swap`)**: Optional on-demand process manager and reverse proxy that loads model backends into VRAM on demand, offloading idle models after inactivity timeouts (`port 8080`).
+- **Clients**: Interactive terminal client (`cli.py`) and external API clients (web frontends, mobile language-learning apps like FreeLingo).
 
 ```
-                         +-----------------------------+
-                         |      Client (cli.py)        |
-                         |  (Microphone / Audio File)  |
-                         +--------------+--------------+
-                                        |
-                   +--------------------+--------------------+
-                   |                                         |
-            [llama-swap]                              [--direct]
-                   |                                         |
-     +-------------+-------------+             +-------------+-------------+
-     |                           |             |                           |
-     v                           v             v                           v
-+-------------------+   +--------------------+ +-------------------+   +--------------------+
-|   ASR Service     |   | Pronounce Service  | |   ASR Service     |   | Pronounce Service  |
-|  (asr_server.py)  |   | (pronounce_server) | |  (asr_server.py)  |   | (pronounce_server) |
-|    port 8001      |   |     port 8002      | |    port 8001      |   |     port 8002      |
-|  Qwen3-ASR-0.6B   |   |   OpenPronounce    | |  Qwen3-ASR-0.6B   |   |   OpenPronounce    |
-+-------------------+   +--------------------+ +-------------------+   +--------------------+
+                  +---------------------------------------------------+
+                  |                      Clients                      |
+                  |   Web / Mobile Apps (FreeLingo)  •  CLI (cli.py)  |
+                  +-------------------------+-------------------------+
+                                            |
+                                            v
+         +----------------------------------+----------------------------------+
+         |                                  |                                  |
+         v                                  v                                  v
++-------------------+              +-------------------+              +-------------------+
+|  Combined Local   |              |    Standalone     |              |  Managed Router   |
+|   (serve.py)      |              |   Microservices   |              |   (llama-swap)    |
++--------+----------+              +----+---------+----+              +---------+---------+
+         |                              |         |                             |
+         +------------------+           |         |           +-----------------+
+                            |           |         |           |
+                            v           v         v           v
+                    +--------------------+     +--------------------+
+                    |    ASR Service     |     | Pronounce Service  |
+                    |  (asr_server.py)   |     | (pronounce_server) |
+                    |     port 8001      |     |     port 8002      |
+                    |--------------------|     |--------------------|
+                    | Qwen3-ASR (0.6B,   |     | OpenPronounce      |
+                    | 1.7B, or Custom)   |     | (Wav2Vec2 + G2P)   |
+                    |                    |     |                    |
+                    | /v1/audio/         |     | /assess            |
+                    |  transcriptions    |     |                    |
+                    +--------------------+     +--------------------+
 ```
 
 ## Prerequisites

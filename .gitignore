@@ -55,3 +55,12 @@ temp/
 *.safetensors
 *.pt
 *.pth
+
+# Agent & Harness files
+AGENTS.md
+agent.md
+CLAUDE.md
+claude.md
+PROMPT.md
+prompt.md
+agents/

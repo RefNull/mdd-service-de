@@ -23,19 +23,49 @@ import sounddevice as sd
 import soundfile as sf
 
 
-def _extract_port(url: str, default: str) -> str:
-    """Extract port number from URL or return default string."""
+def _post_multipart(
+    url: str,
+    data: dict,
+    files: dict,
+    service_label: str = "ASR",
+    script_name: str = "asr_server.py",
+    default_port: int = 8001,
+    direct: bool = False,
+    timeout: float = 60.0,
+) -> dict:
+    """Deduplicated HTTP multipart POST execution and connection error diagnostics."""
     try:
+        response = requests.post(url, files=files, data=data, timeout=timeout)
+    except requests.exceptions.ConnectionError as err:
         parsed = urlparse(url)
-        return str(parsed.port) if parsed.port else default
-    except Exception:
-        return default
+        port = parsed.port or default_port
+        base_url = f"{parsed.scheme}://{parsed.netloc}" if parsed.netloc else url
+        target_name = f"{service_label} server at {base_url}" if direct else f"llama-swap router at {base_url}"
+        guidance = (
+            f"Ensure {script_name} is running:\n  python {script_name} --port {port}"
+            if direct
+            else (
+                "Ensure llama-swap is running:\n"
+                "  llama-swap --config llama-swap.yaml\n"
+                "Or pass '--direct' to query the ASR and Pronounce servers directly."
+            )
+        )
+        raise ConnectionRefusedError(
+            f"Failed to connect to {target_name}.\nConnection was refused.\n{guidance}"
+        ) from err
+    except requests.exceptions.RequestException as err:
+        raise RuntimeError(f"{service_label} request failed: {err}") from err
+
+    if response.status_code != 200:
+        raise RuntimeError(
+            f"{service_label} request returned status {response.status_code}: {response.text}"
+        )
+
+    return response.json()
 
 
 def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
-    """
-    Parse command-line arguments.
-    """
+    """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
         description="German Speech Fluency & Phonetic Pronunciation Assessment Client",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -86,9 +116,7 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
 
 
 def array_to_wav_bytes(data: np.ndarray, samplerate: int = 16000) -> bytes:
-    """
-    Pack numpy array of audio samples into an in-memory 16-bit PCM WAV buffer.
-    """
+    """Pack numpy array of audio samples into an in-memory 16-bit PCM WAV buffer."""
     buffer = io.BytesIO()
     sf.write(buffer, data, samplerate, format="WAV", subtype="PCM_16")
     return buffer.getvalue()
@@ -106,8 +134,6 @@ def record_audio(
     chunks: List[np.ndarray] = []
 
     def callback(indata, frames, time_info, status):
-        if status:
-            pass
         chunks.append(indata.copy())
 
     try:
@@ -134,9 +160,7 @@ def record_audio(
 
 
 def load_audio_file(file_path: str | Path) -> bytes:
-    """
-    Load an audio file into in-memory bytes with validation.
-    """
+    """Load an audio file into in-memory bytes with validation."""
     path = Path(file_path)
     if not path.is_file():
         raise FileNotFoundError(f"Audio file not found: {file_path}")
@@ -153,9 +177,7 @@ def query_asr(
     filename: str = "audio.wav",
     timeout: float = 60.0,
 ) -> str:
-    """
-    Step 1: Send audio to ASR endpoint for fluency transcription.
-    """
+    """Step 1: Send audio to ASR endpoint for fluency transcription."""
     url = f"{target_url.rstrip('/')}/v1/audio/transcriptions"
     mime_type = "audio/ogg" if filename.lower().endswith(".ogg") else "audio/wav"
     files = {"file": (filename, wav_bytes, mime_type)}
@@ -164,33 +186,16 @@ def query_asr(
     if not direct:
         data["model"] = "qwen3-asr"
 
-    try:
-        response = requests.post(url, files=files, data=data, timeout=timeout)
-    except requests.exceptions.ConnectionError as err:
-        target_name = f"ASR server at {target_url}" if direct else f"llama-swap router at {target_url}"
-        port = _extract_port(target_url, "8001")
-        guidance = (
-            "Ensure asr_server.py is running:\n"
-            f"  python asr_server.py --port {port}"
-            if direct
-            else (
-                "Ensure llama-swap is running:\n"
-                f"  llama-swap --config llama-swap.yaml\n"
-                "Or pass '--direct' to query the ASR and Pronounce servers directly."
-            )
-        )
-        raise ConnectionRefusedError(
-            f"Failed to connect to {target_name}.\nConnection was refused.\n{guidance}"
-        ) from err
-    except requests.exceptions.RequestException as err:
-        raise RuntimeError(f"ASR request failed: {err}") from err
-
-    if response.status_code != 200:
-        raise RuntimeError(
-            f"ASR request returned status {response.status_code}: {response.text}"
-        )
-
-    result = response.json()
+    result = _post_multipart(
+        url,
+        data=data,
+        files=files,
+        service_label="ASR",
+        script_name="asr_server.py",
+        default_port=8001,
+        direct=direct,
+        timeout=timeout,
+    )
     return result.get("text", "")
 
 
@@ -203,51 +208,26 @@ def query_pronounce(
     filename: str = "audio.wav",
     timeout: float = 120.0,
 ) -> Dict[str, Any]:
-    """
-    Step 2: Send audio and target text to OpenPronounce assessment endpoint.
-    """
-    if direct:
-        url = f"{target_url.rstrip('/')}/assess"
-    else:
-        url = f"{target_url.rstrip('/')}/upstream/openpronounce/assess"
-
+    """Step 2: Send audio and target text to OpenPronounce assessment endpoint."""
+    url = f"{target_url.rstrip('/')}/assess" if direct else f"{target_url.rstrip('/')}/upstream/openpronounce/assess"
     mime_type = "audio/ogg" if filename.lower().endswith(".ogg") else "audio/wav"
     files = {"file": (filename, wav_bytes, mime_type)}
     data = {"expected_text": expected_text, "lang": lang}
 
-    try:
-        response = requests.post(url, files=files, data=data, timeout=timeout)
-    except requests.exceptions.ConnectionError as err:
-        target_name = f"Pronunciation server at {target_url}" if direct else f"llama-swap router at {target_url}"
-        port = _extract_port(target_url, "8002")
-        guidance = (
-            "Ensure pronounce_server.py is running:\n"
-            f"  python pronounce_server.py --port {port}"
-            if direct
-            else (
-                "Ensure llama-swap is running:\n"
-                f"  llama-swap --config llama-swap.yaml\n"
-                "Or pass '--direct' to query the ASR and Pronounce servers directly."
-            )
-        )
-        raise ConnectionRefusedError(
-            f"Failed to connect to {target_name}.\nConnection was refused.\n{guidance}"
-        ) from err
-    except requests.exceptions.RequestException as err:
-        raise RuntimeError(f"Pronunciation assessment request failed: {err}") from err
-
-    if response.status_code != 200:
-        raise RuntimeError(
-            f"Pronunciation assessment request returned status {response.status_code}: {response.text}"
-        )
-
-    return response.json()
+    return _post_multipart(
+        url,
+        data=data,
+        files=files,
+        service_label="Pronunciation",
+        script_name="pronounce_server.py",
+        default_port=8002,
+        direct=direct,
+        timeout=timeout,
+    )
 
 
 def format_score_bar(score: float, width: int = 20) -> str:
-    """
-    Format score into visual progress bar: e.g. [================>   ] 82.5 / 100
-    """
+    """Format score into visual progress bar: e.g. [================>   ] 82.5 / 100"""
     clamped = max(0.0, min(100.0, float(score)))
     filled = int(round((clamped / 100.0) * width))
     if filled <= 0:
@@ -261,7 +241,7 @@ def format_score_bar(score: float, width: int = 20) -> str:
 
 def format_report(target_text: str, asr_text: str, assessment: Dict[str, Any]) -> str:
     """
-    Generate structured terminal report per PROMPT.md specifications:
+    Generate structured terminal report per specifications:
       - Overall Score (0-100) with visual score bar
       - Fluency / Transcription Comparison (Target vs ASR vs Wav2Vec2)
       - Phoneme Error Rate (PER)
@@ -311,9 +291,7 @@ def format_report(target_text: str, asr_text: str, assessment: Dict[str, Any]) -
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    """
-    Main client entry point.
-    """
+    """Main client entry point."""
     args = parse_args(argv)
 
     print("\n" + "=" * 74)

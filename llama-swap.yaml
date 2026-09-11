@@ -1,0 +1,12 @@
+models:
+  qwen3-asr:
+    cmd: python asr_server.py --port ${PORT}
+    ttl: 3600
+    healthCheckTimeout: 120
+    checkEndpoint: /health
+
+  openpronounce:
+    cmd: python pronounce_server.py --port ${PORT}
+    ttl: 3600
+    healthCheckTimeout: 180
+    checkEndpoint: /health

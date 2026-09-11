@@ -1,0 +1,21 @@
+# System Prerequisites:
+# - ffmpeg (required for audio decoding / resampling)
+# - espeak-ng (required for German G2P phoneme conversion)
+#
+# Optional / Future TTS Engine:
+# - Chatterbox Multilingual V3 (target engine for German reference audio generation)
+
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+torch>=2.4.0
+torchvision
+torchaudio
+transformers>=4.49.0
+accelerate>=0.34.0
+openpronounce>=0.1.0
+sounddevice>=0.5.0
+soundfile>=0.12.1
+requests>=2.32.0
+python-multipart>=0.0.12
+numpy<2.0.0
+pytest>=8.0.0

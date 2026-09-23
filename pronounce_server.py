@@ -97,23 +97,24 @@ async def assess(
             )
         )
 
-        diffs = raw_result.get("differences") or raw_result.get("errors", [])
-        error_list = diffs.get("errors", []) if isinstance(diffs, dict) else (diffs if isinstance(diffs, list) else [])
+        # openpronounce 0.3.x shape. With the phone recognizer (default), expected/actual
+        # are phone lists and confidence lives per phone; on the word-transcription path
+        # they are IPA strings and there is no confidence.
+        differences = raw_result.get("differences") or {}
         errors = [
             {
                 "word": str(err.get("word", "")),
-                "expected_ipa": str(err.get("expected") or err.get("expected_ipa", "")),
-                "actual_ipa": str(err.get("actual") or err.get("actual_ipa", "")),
-                "confidence": float(err.get("confidence", 0.0)),
+                "expected_ipa": "".join(err.get("expected") or ""),
+                "actual_ipa": "".join(err.get("actual") or ""),
+                "confidence": float(max((p.get("confidence", 0.0) for p in err.get("phones") or []), default=0.0)),
             }
-            for err in error_list
-            if isinstance(err, dict)
+            for err in differences.get("errors") or []
         ]
 
         return {
             "score": float(raw_result.get("score") or 0.0),
-            "transcription": str(raw_result.get("transcription") or ""),
-            "phoneme_error_rate": float(raw_result.get("phoneme_error_rate") or 0.0),
+            "transcription": str(raw_result.get("transcribe") or ""),
+            "phoneme_error_rate": float(differences.get("phoneme_error_rate") or 0.0),
             "errors": errors,
         }
     except HTTPException:

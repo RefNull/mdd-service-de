@@ -56,6 +56,7 @@
 - **System Packages**:
   - `ffmpeg` (required for audio decoding and resampling)
   - `espeak-ng` (required by OpenPronounce for German grapheme-to-phoneme conversion)
+  - A C compiler and Python headers (`fastdtw`, an OpenPronounce dependency, ships no wheels and is built on install)
 - **Hardware Acceleration (Optional, Auto-Detected)**:
   - NVIDIA GPU with CUDA
   - Apple Silicon with MPS
@@ -65,7 +66,7 @@
 
 **Debian / Ubuntu:**
 ```bash
-sudo apt-get update && sudo apt-get install -y ffmpeg espeak-ng
+sudo apt-get update && sudo apt-get install -y ffmpeg espeak-ng build-essential python3-dev
 ```
 
 **macOS (Homebrew):**
@@ -206,6 +207,17 @@ Model selection can be configured in three ways:
 1. CLI argument: `python serve.py --model Qwen3-ASR-1.7B` or `python asr_server.py --model Qwen3-ASR-1.7B`
 2. Environment variable: `export MDD_ASR_MODEL="Qwen3-ASR-1.7B"`
 3. In `llama-swap.yaml`: Route to either `qwen3-asr` or `qwen3-asr-1.7b`.
+
+### Where the weights come from
+
+No weights live in this repository. On first start, `transformers` downloads the resolved
+repository from the Hugging Face Hub into the standard cache
+(`~/.cache/huggingface/hub/`, relocatable with `HF_HOME` or `HF_HUB_CACHE`); later starts
+load from cache. The first launch therefore needs network access and several GB of disk,
+and can exceed the `healthCheckTimeout` in `llama-swap.yaml` — warm the cache once with a
+direct `python asr_server.py` run. OpenPronounce fetches its own German Wav2Vec2 models the
+same way when first used. To run fully offline, pass a local directory as
+`--model` and set `HF_HUB_OFFLINE=1`.
 
 ---
 
@@ -379,7 +391,7 @@ The `/assess` endpoint returns detailed pronunciation metrics and a breakdown of
 | `errors[].word` | `string` | Flagged word token. |
 | `errors[].expected_ipa` | `string` | Canonical German IPA phoneme sequence. |
 | `errors[].actual_ipa` | `string` | Spoken IPA phoneme sequence detected from audio. |
-| `errors[].confidence` | `float` | Confidence score for the detected phonetic error (0.0 to 1.0). |
+| `errors[].confidence` | `float` | Highest per-phone error confidence in the word (0.0 to 1.0). `0.0` when OpenPronounce's phone recognizer is disabled. |
 
 ## Testing
 

@@ -50,26 +50,38 @@ def synthetic_wav_bytes():
 
 @pytest.fixture
 def sample_german_result():
-    """Sample assessment response matching OpenPronounce differences structure."""
+    """Trimmed openpronounce 0.3.x result with the phone recognizer enabled (its default)."""
     return {
         "score": 88.5,
-        "transcription": "Ich gehe heute in die Schule",
-        "phoneme_error_rate": 0.115,
+        "transcribe": "Ich gehe heute in die Schule",
+        "language": "de",
         "differences": {
+            "phoneme_error_rate": 0.115,
+            "word_error_rate": 0.0,
+            "transcribe": "Ich gehe heute in die Schule",
             "errors": [
                 {
+                    "position": 5,
                     "word": "Schule",
-                    "expected": "ˈʃuːlə",
-                    "actual": "ˈsuːlə",
-                    "confidence": 0.92,
+                    "expected": ["ʃ", "uː", "l", "ə"],
+                    "actual": ["s", "uː", "l", "ə"],
+                    "distance": 1,
+                    "phones": [{"expected": "ʃ", "heard": "s", "confidence": 0.92}],
+                    "weighted_edits": 0.92,
                 },
                 {
+                    "position": 1,
                     "word": "gehe",
-                    "expected": "ˈɡeːə",
-                    "actual": "ˈgeːhə",
-                    "confidence": 0.78,
+                    "expected": ["ɡ", "eː", "ə"],
+                    "actual": ["ɡ", "eː", "h", "ə"],
+                    "distance": 1,
+                    "phones": [
+                        {"expected": "", "heard": "h", "confidence": 0.4},
+                        {"expected": "ə", "heard": "ə", "confidence": 0.78},
+                    ],
+                    "weighted_edits": 1.18,
                 },
-            ]
+            ],
         },
     }
 
@@ -135,14 +147,14 @@ def test_assess_success_contract(client, mock_openpronounce, synthetic_wav_bytes
 
     assert errors[0] == {
         "word": "Schule",
-        "expected_ipa": "ˈʃuːlə",
-        "actual_ipa": "ˈsuːlə",
+        "expected_ipa": "ʃuːlə",
+        "actual_ipa": "suːlə",
         "confidence": 0.92,
     }
     assert errors[1] == {
         "word": "gehe",
-        "expected_ipa": "ˈɡeːə",
-        "actual_ipa": "ˈgeːhə",
+        "expected_ipa": "ɡeːə",
+        "actual_ipa": "ɡeːhə",
         "confidence": 0.78,
     }
 
@@ -233,25 +245,29 @@ def test_assess_exception_unlinks_tempfile(client, monkeypatch, synthetic_wav_by
     assert not os.path.exists(captured_paths[0])
 
 
-def test_differences_field_normalization(client, monkeypatch, synthetic_wav_bytes):
+def test_word_transcription_path_normalization(client, monkeypatch, synthetic_wav_bytes):
     """
-    Verify variations of differences/errors schema normalization:
-    - expected_ipa and actual_ipa field aliases
-    - direct errors list without differences wrapper
+    With the phone recognizer disabled, openpronounce derives errors from the word
+    transcription: expected/actual are IPA strings and there is no per-phone confidence.
     """
     mock_compare = MagicMock(
         return_value={
             "score": 95.0,
-            "transcription": "Guten Morgen",
-            "phoneme_error_rate": 0.05,
-            "errors": [
-                {
-                    "word": "Morgen",
-                    "expected_ipa": "ˈmɔʁɡn̩",
-                    "actual_ipa": "ˈmɔʁɡŋ",
-                    "confidence": 0.85,
-                }
-            ],
+            "transcribe": "Guten Morgen",
+            "differences": {
+                "phoneme_error_rate": 0.05,
+                "word_error_rate": 0.0,
+                "transcribe": "Guten Morgen",
+                "errors": [
+                    {
+                        "position": 5,
+                        "word": "Morgen",
+                        "expected": "mɔʁɡn̩",
+                        "actual": "mɔʁɡŋ",
+                        "actual_word": "Morgen",
+                    }
+                ],
+            },
         }
     )
     monkeypatch.setattr(openpronounce, "compare_audio_with_text", mock_compare)
@@ -262,12 +278,16 @@ def test_differences_field_normalization(client, monkeypatch, synthetic_wav_byte
     response = client.post("/assess", files=files, data={"expected_text": "Guten Morgen"})
     assert response.status_code == 200
     data = response.json()
-    assert data["errors"][0] == {
-        "word": "Morgen",
-        "expected_ipa": "ˈmɔʁɡn̩",
-        "actual_ipa": "ˈmɔʁɡŋ",
-        "confidence": 0.85,
-    }
+    assert data["transcription"] == "Guten Morgen"
+    assert data["phoneme_error_rate"] == 0.05
+    assert data["errors"] == [
+        {
+            "word": "Morgen",
+            "expected_ipa": "mɔʁɡn̩",
+            "actual_ipa": "mɔʁɡŋ",
+            "confidence": 0.0,
+        }
+    ]
 
 
 def test_device_resolution_and_env():

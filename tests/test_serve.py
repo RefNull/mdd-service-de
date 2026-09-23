@@ -15,7 +15,14 @@ if repo_root not in sys.path:
 
 import pytest
 
-from serve import build_commands, parse_args, run_combined, terminate_process
+from serve import (
+    build_commands,
+    check_dependencies,
+    parse_args,
+    resolve_python_executable,
+    run_combined,
+    terminate_process,
+)
 
 
 def test_parse_args_defaults():
@@ -127,9 +134,10 @@ def test_terminate_process_timeout_fallback_to_kill():
     mock_proc.kill.assert_called_once()
 
 
+@patch("serve.check_dependencies", return_value=True)
 @patch("serve.subprocess.Popen")
 @patch("serve.signal.signal")
-def test_run_combined_process_exit_supervision(mock_signal, mock_popen):
+def test_run_combined_process_exit_supervision(mock_signal, mock_popen, mock_check_deps):
     """Verify run_combined terminates the sibling process if one exits unexpectedly."""
     proc1 = MagicMock()
     proc1.pid = 101
@@ -148,3 +156,48 @@ def test_run_combined_process_exit_supervision(mock_signal, mock_popen):
     assert exit_code == 1
     # Check that sibling proc1 was terminated
     proc1.terminate.assert_called_once()
+
+
+def test_parse_args_python():
+    """Verify --python argument parsing."""
+    args = parse_args(["--python", "/custom/bin/python"])
+    assert args.python == "/custom/bin/python"
+
+
+def test_resolve_python_executable_explicit():
+    """Explicit argument overrides auto-detection."""
+    assert resolve_python_executable("/custom/bin/python") == "/custom/bin/python"
+
+
+def test_resolve_python_executable_venv_active(monkeypatch):
+    """When inside an active virtualenv, sys.executable is returned."""
+    monkeypatch.setattr(sys, "prefix", "/some/venv")
+    monkeypatch.setattr(sys, "base_prefix", "/base/python")
+    assert resolve_python_executable() == sys.executable
+
+
+def test_resolve_python_executable_auto_detect(tmp_path, monkeypatch):
+    """When not in a venv, auto-detects .venv/bin/python if present in repo root."""
+    fake_venv_python = tmp_path / ".venv" / "bin" / "python"
+    fake_venv_python.parent.mkdir(parents=True)
+    fake_venv_python.touch(mode=0o755)
+
+    monkeypatch.setattr(sys, "prefix", "/usr")
+    monkeypatch.setattr(sys, "base_prefix", "/usr")
+    monkeypatch.setattr("serve.Path", lambda p: tmp_path / "serve.py")
+
+    resolved = resolve_python_executable()
+    assert resolved == str(fake_venv_python)
+
+
+def test_check_dependencies():
+    """Verify check_dependencies succeeds with current venv python."""
+    assert check_dependencies(sys.executable) is True
+    assert check_dependencies("/nonexistent/python") is False
+
+
+def test_run_combined_missing_dependencies():
+    """Verify run_combined returns 1 if check_dependencies fails."""
+    args = parse_args(["--python", "/nonexistent/python"])
+    assert run_combined(args) == 1
+

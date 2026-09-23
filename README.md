@@ -84,15 +84,30 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+> [!TIP]
+> **Automatic Bootstrapping**: If using Option 1 (`serve.py`), the virtual environment creation and dependency installation will be performed automatically on first launch if not already present.
+
 ## Quickstart / Running
 
 ### 1. Combined Local Deployment (`serve.py`) [Recommended]
 
-Launch both microservices together in a single command with unified signal handling and process supervision:
+Launch both microservices together with unified signal handling, automated process supervision, persistent logging, and background daemon support:
 
 ```bash
-# Start both services (ASR on 8001, Pronunciation Assessment on 8002)
+# Start both services attached in the foreground (ASR on 8001, Pronunciation Assessment on 8002)
 python serve.py
+
+# Run in background (detached daemon mode)
+python serve.py --detach   # or -d
+
+# Check service status and health probes
+python serve.py --status
+
+# View and follow real-time logs
+python serve.py --logs     # or -f
+
+# Stop background deployment cleanly
+python serve.py --stop
 
 # Specify model preset (Qwen3-ASR-0.6B or Qwen3-ASR-1.7B)
 python serve.py --model Qwen3-ASR-1.7B
@@ -101,7 +116,16 @@ python serve.py --model Qwen3-ASR-1.7B
 python serve.py --host 0.0.0.0 --asr-port 9001 --pronounce-port 9002 --device cuda --model your-org/custom-model
 ```
 
-Both microservices run in isolated subprocesses to guarantee clean PyTorch CUDA contexts. Pressing `Ctrl+C` cleanly shuts down both processes without leaving orphaned GPU jobs.
+#### Features & Operational Management
+- **Automatic Environment Bootstrapping**: On a fresh clone, if `.venv` or required dependencies are missing, `serve.py` automatically initializes `.venv` and installs `requirements.txt`. Use `--no-auto-setup` to disable, or `--python <path>` to target a specific interpreter.
+- **Detached Execution (`--detach` / `-d`)**: Spawns the supervisor as an independent background session and writes the process ID to `.serve.pid`. The foreground shell returns immediately.
+- **Health & Readiness Inspection (`--status`)**: Probes the supervisor process and pings both microservice `GET /health` endpoints, reporting UP, STARTING, or STOPPED status.
+- **Persistent Logging (`--logs` / `-f`)**: All microservice stdout/stderr streams are unbuffered (`PYTHONUNBUFFERED=1`) and written to `logs/`:
+  - `logs/serve.log`: Combined supervisor stream with `[asr]` and `[pronounce]` prefixes.
+  - `logs/asr.log`: Dedicated ASR server logs.
+  - `logs/pronounce.log`: Dedicated Pronunciation Assessment server logs.
+- **Graceful Shutdown (`--stop` or `Ctrl+C`)**: Sends `SIGTERM` to both child processes, waits up to 5 seconds for clean model/VRAM release, and falls back to `SIGKILL` only if a process hangs. Removes `.serve.pid` on exit.
+- **Process Supervision**: If either microservice exits unexpectedly, `serve.py` automatically terminates the sibling microservice to prevent orphaned processes or half-open states.
 
 ### 2. Standalone Microservices
 

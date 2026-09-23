@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
+import signal
 import subprocess
 import sys
 from unittest.mock import MagicMock, patch
@@ -16,11 +18,21 @@ if repo_root not in sys.path:
 import pytest
 
 from serve import (
+    bootstrap_environment,
     build_commands,
     check_dependencies,
+    get_default_log_dir,
+    get_default_pid_file,
+    handle_logs,
+    handle_status,
+    handle_stop,
+    is_pid_running,
     parse_args,
+    probe_health,
+    read_pid,
     resolve_python_executable,
     run_combined,
+    spawn_detached,
     terminate_process,
 )
 
@@ -72,12 +84,13 @@ def test_parse_args_env_model(monkeypatch):
 
 
 def test_build_commands():
-    """Verify construction of subprocess execution commands."""
+    """Verify construction of subprocess execution commands with unbuffered stdout flag."""
     args = parse_args(["--host", "127.0.0.1", "--asr-port", "8010", "--pronounce-port", "8020", "--model", "custom-model", "--device", "cpu"])
     asr_cmd, pronounce_cmd = build_commands(args, python_exe="/opt/python")
 
     assert asr_cmd == [
         "/opt/python",
+        "-u",
         "asr_server.py",
         "--host",
         "127.0.0.1",
@@ -90,6 +103,7 @@ def test_build_commands():
     ]
     assert pronounce_cmd == [
         "/opt/python",
+        "-u",
         "pronounce_server.py",
         "--host",
         "127.0.0.1",
@@ -200,4 +214,231 @@ def test_run_combined_missing_dependencies():
     """Verify run_combined returns 1 if check_dependencies fails."""
     args = parse_args(["--python", "/nonexistent/python"])
     assert run_combined(args) == 1
+
+
+def test_parse_args_lifecycle_actions():
+    """Verify parsing of lifecycle, detached, and logging flags."""
+    args_stop = parse_args(["--stop"])
+    assert args_stop.stop is True
+
+    args_status = parse_args(["--status"])
+    assert args_status.status is True
+
+    args_logs = parse_args(["--logs"])
+    assert args_logs.logs is True
+
+    args_logs_f = parse_args(["-f"])
+    assert args_logs_f.logs is True
+
+    args_detach = parse_args(["--detach"])
+    assert args_detach.detach is True
+
+    args_detach_d = parse_args(["-d"])
+    assert args_detach_d.detach is True
+
+    args_no_auto = parse_args(["--no-auto-setup"])
+    assert args_no_auto.no_auto_setup is True
+
+    args_custom_paths = parse_args(["--log-dir", "/tmp/test-logs", "--pid-file", "/tmp/test.pid"])
+    assert args_custom_paths.log_dir == "/tmp/test-logs"
+    assert args_custom_paths.pid_file == "/tmp/test.pid"
+
+    # Action flags bypass port collision check
+    args_same_port = parse_args(["--status", "--asr-port", "8080", "--pronounce-port", "8080"])
+    assert args_same_port.status is True
+
+
+def test_read_and_is_pid_running(tmp_path):
+    """Verify read_pid and is_pid_running helpers."""
+    pid_file = tmp_path / "test.pid"
+    assert read_pid(pid_file) is None
+
+    pid_file.write_text("invalid_pid\n")
+    assert read_pid(pid_file) is None
+
+    pid_file.write_text("12345\n")
+    assert read_pid(pid_file) == 12345
+
+    assert is_pid_running(0) is False
+    assert is_pid_running(-1) is False
+    assert is_pid_running(os.getpid()) is True
+
+    with patch("serve.os.kill", side_effect=OSError):
+        assert is_pid_running(999999) is False
+
+
+def test_handle_stop_not_running(tmp_path, capsys):
+    """Verify handle_stop when no process is running."""
+    pid_file = tmp_path / "serve.pid"
+
+    # Case 1: PID file does not exist
+    ret = handle_stop(pid_file)
+    assert ret == 0
+    captured = capsys.readouterr()
+    assert "No active combined deployment found." in captured.out
+
+    # Case 2: PID file exists but process is dead
+    pid_file.write_text("999999\n")
+    with patch("serve.is_pid_running", return_value=False):
+        ret = handle_stop(pid_file)
+        assert ret == 0
+        assert not pid_file.exists()
+
+
+def test_handle_stop_running(tmp_path, capsys):
+    """Verify handle_stop terminates a running process and cleans up PID file."""
+    pid_file = tmp_path / "serve.pid"
+    pid_file.write_text("12345\n")
+
+    # Process is running initially, then stops after SIGTERM
+    running_states = [True, True, False]
+    with patch("serve.is_pid_running", side_effect=lambda pid: running_states.pop(0) if running_states else False), \
+         patch("serve.os.kill") as mock_kill:
+        ret = handle_stop(pid_file)
+        assert ret == 0
+        mock_kill.assert_called_with(12345, signal.SIGTERM)
+        assert not pid_file.exists()
+
+
+def test_handle_stop_timeout_fallback_to_kill(tmp_path):
+    """Verify handle_stop sends SIGKILL if SIGTERM times out."""
+    pid_file = tmp_path / "serve.pid"
+    pid_file.write_text("12345\n")
+
+    # Simulate process remaining alive past deadline
+    with patch("serve.is_pid_running", return_value=True), \
+         patch("serve.os.kill") as mock_kill, \
+         patch("serve.time.time", side_effect=[0.0, 1.0, 10.0, 10.1]):
+        ret = handle_stop(pid_file)
+        assert ret == 0
+        # Expect SIGTERM first, then SIGKILL
+        assert mock_kill.call_count >= 2
+        calls = [c[0][1] for c in mock_kill.call_args_list]
+        assert signal.SIGTERM in calls
+        assert signal.SIGKILL in calls
+        assert not pid_file.exists()
+
+
+def test_probe_health():
+    """Verify probe_health succeeds with valid JSON and handles network errors."""
+    mock_resp = MagicMock()
+    mock_resp.status = 200
+    mock_resp.read.return_value = b'{"status": "ok", "service": "qwen3-asr"}'
+    mock_cm = MagicMock()
+    mock_cm.__enter__.return_value = mock_resp
+
+    with patch("serve.urllib.request.urlopen", return_value=mock_cm):
+        result = probe_health("http://127.0.0.1:8001/health")
+        assert result == {"status": "ok", "service": "qwen3-asr"}
+
+    with patch("serve.urllib.request.urlopen", side_effect=Exception("Connection refused")):
+        assert probe_health("http://127.0.0.1:8001/health") is None
+
+
+def test_handle_status(tmp_path, capsys):
+    """Verify handle_status report formatting for running and stopped states."""
+    pid_file = tmp_path / "serve.pid"
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+
+    # Case 1: Running with active services
+    pid_file.write_text("54321")
+    with patch("serve.is_pid_running", return_value=True), \
+         patch("serve.probe_health", side_effect=[
+             {"status": "ok", "model": "Qwen3-ASR-0.6B", "device": "cpu"},
+             {"status": "ok", "device": "cpu"},
+         ]):
+        ret = handle_status(pid_file, "0.0.0.0", 8001, 8002, log_dir)
+        assert ret == 0
+        captured = capsys.readouterr()
+        assert "Supervisor Process:   RUNNING (PID 54321)" in captured.out
+        assert "ASR Service:          UP" in captured.out
+        assert "Pronounce Service:    UP" in captured.out
+
+    # Case 2: Not running
+    pid_file.unlink(missing_ok=True)
+    with patch("serve.probe_health", return_value=None):
+        ret = handle_status(pid_file, "0.0.0.0", 8001, 8002, log_dir)
+        assert ret == 1
+        captured = capsys.readouterr()
+        assert "Supervisor Process:   NOT RUNNING" in captured.out
+        assert "ASR Service:          STOPPED" in captured.out
+        assert "Pronounce Service:    STOPPED" in captured.out
+
+
+def test_handle_logs(tmp_path, capsys):
+    """Verify handle_logs reading and error handling."""
+    missing_log = tmp_path / "missing.log"
+    assert handle_logs(missing_log) == 1
+
+    sample_log = tmp_path / "serve.log"
+    sample_log.write_text("line 1\nline 2\nline 3\n")
+    assert handle_logs(sample_log, lines_count=2) == 0
+    captured = capsys.readouterr()
+    assert "line 2\nline 3\n" in captured.out
+
+
+def test_spawn_detached(tmp_path, capsys):
+    """Verify spawn_detached background execution logic."""
+    pid_file = tmp_path / "serve.pid"
+    log_dir = tmp_path / "logs"
+
+    args = parse_args(["--detach", "--pid-file", str(pid_file), "--log-dir", str(log_dir)])
+
+    # Case 1: Already running
+    pid_file.write_text("11111")
+    with patch("serve.is_pid_running", return_value=True):
+        ret = spawn_detached(args)
+        assert ret == 1
+        captured = capsys.readouterr()
+        assert "already running" in captured.out
+
+    # Case 2: Successful spawn
+    pid_file.unlink(missing_ok=True)
+    mock_proc = MagicMock()
+    mock_proc.pid = 9988
+    mock_proc.poll.return_value = None
+
+    with patch("serve.is_pid_running", return_value=False), \
+         patch("serve.subprocess.Popen", return_value=mock_proc):
+        ret = spawn_detached(args)
+        assert ret == 0
+        assert pid_file.read_text().strip() == "9988"
+        captured = capsys.readouterr()
+        assert "Combined deployment started in background (PID 9988)." in captured.out
+
+    # Case 3: Process immediately exits with error code
+    pid_file.unlink(missing_ok=True)
+    mock_proc_fail = MagicMock()
+    mock_proc_fail.poll.return_value = 2
+
+    with patch("serve.is_pid_running", return_value=False), \
+         patch("serve.subprocess.Popen", return_value=mock_proc_fail):
+        ret = spawn_detached(args)
+        assert ret == 2
+
+
+def test_bootstrap_environment(tmp_path):
+    """Verify bootstrap_environment virtual environment creation and pip install."""
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    (repo_dir / "requirements.txt").write_text("fastapi\n")
+
+    venv_python = (
+        repo_dir / ".venv" / "Scripts" / "python.exe"
+        if sys.platform == "win32"
+        else repo_dir / ".venv" / "bin" / "python"
+    )
+
+    def fake_subprocess_run(cmd, *args, **kwargs):
+        if "-m" in cmd and "venv" in cmd:
+            venv_python.parent.mkdir(parents=True, exist_ok=True)
+            venv_python.touch(mode=0o755)
+        return MagicMock(returncode=0)
+
+    with patch("serve.subprocess.run", side_effect=fake_subprocess_run), \
+         patch("serve.check_dependencies", side_effect=[False, True]):
+        result = bootstrap_environment(repo_dir)
+        assert result == str(venv_python)
+
 

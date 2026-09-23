@@ -11,15 +11,16 @@ Documentation Sources:
 ARCHITECTURAL NOTE:
 DO NOT use AutoModelForSpeechSeq2Seq because qwen3_asr is an audio-conditioned
 multimodal architecture (Qwen3ASRForConditionalGeneration).
-Always instantiate via transformers.pipeline("automatic-speech-recognition", model=model_id, torch_dtype=dtype, device=device).
+DO NOT use transformers.pipeline("automatic-speech-recognition") either: it cannot force
+a language for this model (generate_kwargs={"language": ...} is Whisper-only and raises).
+Load AutoProcessor + Qwen3ASRForConditionalGeneration and force the language through
+processor.apply_transcription_request(audio, language=...).
 """
 
 import argparse
 import asyncio
 import logging
 import os
-from pathlib import Path
-import tempfile
 from typing import Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -44,7 +45,7 @@ def resolve_model_id(model_name: str) -> str:
 
 
 MODEL_ID = resolve_model_id(os.environ.get("MDD_ASR_MODEL", "Qwen3-ASR-0.6B"))
-_pipeline = None
+_transcriber = None
 
 
 def resolve_device_and_dtype(device_name: str = "auto") -> tuple[str, torch.dtype]:
@@ -62,17 +63,30 @@ def resolve_device_and_dtype(device_name: str = "auto") -> tuple[str, torch.dtyp
 device, dtype = resolve_device_and_dtype()
 
 
-def get_pipeline():
-    """Get or initialize the Hugging Face ASR pipeline."""
-    global _pipeline
-    if _pipeline is None:
+def get_transcriber():
+    """Load Qwen3-ASR once; return a callable (audio_bytes, language) -> text, or None."""
+    global _transcriber
+    if _transcriber is None:
         if os.environ.get("SKIP_MODEL_LOAD", "").lower() in ("1", "true", "yes"):
             return None
-        from transformers import pipeline
+        from transformers import AutoProcessor, Qwen3ASRForConditionalGeneration
+        from transformers.pipelines.audio_utils import ffmpeg_read
 
-        logger.info("Initializing transformers ASR pipeline for model '%s' on %s (%s)...", MODEL_ID, device, dtype)
-        _pipeline = pipeline("automatic-speech-recognition", model=MODEL_ID, torch_dtype=dtype, device=device)
-    return _pipeline
+        logger.info("Loading Qwen3-ASR model '%s' on %s (%s)...", MODEL_ID, device, dtype)
+        processor = AutoProcessor.from_pretrained(MODEL_ID)
+        model = Qwen3ASRForConditionalGeneration.from_pretrained(MODEL_ID, dtype=dtype).to(device).eval()
+        sampling_rate = processor.feature_extractor.sampling_rate
+
+        def run(audio_bytes: bytes, language: Optional[str]) -> str:
+            audio = ffmpeg_read(audio_bytes, sampling_rate)
+            inputs = processor.apply_transcription_request(audio, language=language).to(device, dtype)
+            with torch.inference_mode():
+                output = model.generate(**inputs, max_new_tokens=448)
+            new_tokens = output[0, inputs["input_ids"].shape[1] :]
+            return processor.decode(new_tokens, return_format="transcription_only")
+
+        _transcriber = run
+    return _transcriber
 
 
 app = FastAPI(
@@ -107,35 +121,19 @@ async def transcribe(
     if not content:
         raise HTTPException(status_code=400, detail="Uploaded audio file is empty.")
 
-    pipe = get_pipeline()
-    if pipe is None:
+    run = get_transcriber()
+    if run is None:
         raise HTTPException(
             status_code=503,
-            detail="ASR pipeline is not initialized or model is still loading.",
+            detail="ASR model is not initialized or is still loading.",
         )
 
-    suffix = Path(file.filename).suffix if file.filename else ".wav"
-    if not suffix:
-        suffix = ".wav"
-
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
     try:
-        tmp.write(content)
-        tmp.flush()
-        tmp.close()
-
-        kwargs = {"generate_kwargs": {"language": language.strip()}} if language and language.strip() else {}
-        result = await asyncio.to_thread(pipe, tmp.name, **kwargs)
-
-        text = result.get("text", "") if isinstance(result, dict) else str(result)
+        text = await asyncio.to_thread(run, content, language.strip() if language and language.strip() else None)
         return {"text": text}
-    except HTTPException:
-        raise
     except Exception as exc:
         logger.error("ASR transcription error: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Transcription failed: {str(exc)}")
-    finally:
-        Path(tmp.name).unlink(missing_ok=True)
 
 
 def parse_args(args: Optional[list[str]] = None) -> argparse.Namespace:

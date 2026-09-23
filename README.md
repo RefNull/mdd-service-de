@@ -14,7 +14,7 @@
 `mdd-service-de` provides a dual microservice architecture designed for high-throughput German speech assessment. It supports single-command combined deployment (`serve.py`), standalone microservices, or dynamic VRAM proxying via [`llama-swap`](https://github.com/mostlygeek/llama-swap):
 
 - **Combined Runner (`serve.py`)**: Recommended single-command supervisor launching and orchestrating both microservices in isolated subprocesses with unified signal handling and exit supervision.
-- **ASR Fluency Service (`asr_server.py`)**: Hugging Face pipeline supporting `Qwen3-ASR` presets (0.6B, 1.7B) and custom checkpoints for real-time German transcription via an OpenAI-compatible endpoint (`port 8001`).
+- **ASR Fluency Service (`asr_server.py`)**: `transformers` Qwen3-ASR processor + model (language forced per request) supporting presets (0.6B, 1.7B) and custom checkpoints for real-time German transcription via an OpenAI-compatible endpoint (`port 8001`).
 - **Pronunciation Assessment Service (`pronounce_server.py`)**: Headless phonetic aligner wrapping OpenPronounce (`Wav2Vec2` acoustic models + `espeak-ng` phonemizer) computing pronunciation scores, Phoneme Error Rates (PER), and word-level expected vs. actual IPA breakdowns (`port 8002`).
 - **Dynamic Proxy (`llama-swap`)**: Optional on-demand process manager and reverse proxy that loads model backends into VRAM on demand, offloading idle models after inactivity timeouts (`port 8080`).
 - **Clients**: Interactive terminal client (`cli.py`) and external API clients (web frontends, mobile language-learning apps like FreeLingo).
@@ -249,15 +249,19 @@ The repository includes a lightweight, zero-dependency HTML test client ([`clien
 2. **Configure Backend Endpoints**:
    - Enter your server's hostname or LAN IP (e.g. `192.168.1.50` or `localhost`).
    - Select either **Direct (`serve.py`)** or **llama-swap Router** mode.
-   - Click **⚡ Check Connection** to ping the health check endpoints.
+   - Click **Check Connection** to ping the health check endpoints.
    - Settings are automatically remembered in browser `localStorage`.
 3. **Record or Upload Audio**:
-   - Click **🎙️ Record** to record German speech using your client machine's microphone (encoded in real time to 16kHz mono WAV).
+   - Click **Record** to record German speech using your client machine's microphone (encoded in real time to 16kHz mono WAV).
    - Or drag-and-drop / upload any audio file (`.wav`, `.ogg`, `.webm`, `.mp3`).
 4. **Instant Diagnostic Results**:
    - **Pronunciation Quality**: Visual score gauge (0–100) and Phoneme Error Rate (PER).
    - **3-Way Comparison**: Target reference prompt vs Qwen3-ASR fluency transcription vs Wav2Vec2 acoustic transcription.
    - **Phonetic Mismatches**: Aligned table highlighting mispronounced words with expected vs heard IPA and confidence scores.
+5. **Reference Speech (optional, Chatterbox TTS Server)**:
+   - Set the TTS endpoint (default `http://<host>:8004/tts`) and pick a voice.
+   - **Listen** / **Listen slowly** reads the target sentence; **Play** / **Slow** on each flagged word reads that word.
+   - Each text is synthesized once (German, multilingual model) and cached. Slow is browser playback at 0.6× with pitch preserved.
 
 > [!NOTE]
 > **Microphone Security**: Browsers restrict microphone access to **Secure Contexts** (`localhost` or HTTPS). Opening `client.html` locally on your client machine (via `file://` or `http://localhost:...`) allows your browser microphone to record audio while sending cross-origin assessment requests across your LAN to the remote server.
@@ -272,7 +276,7 @@ The repository includes a lightweight, zero-dependency HTML test client ([`clien
 |---|---|---|---|
 | **0.6B (Default)** | `Qwen3-ASR-0.6B` or `0.6b` | `Qwen/Qwen3-ASR-0.6B-hf` | Lightweight, fast inference, small VRAM footprint. |
 | **1.7B** | `Qwen3-ASR-1.7B` or `1.7b` | `Qwen/Qwen3-ASR-1.7B-hf` | High-capacity model with improved transcription accuracy. |
-| **CUSTOM** | *Any string* | E.g. `your-org/custom-model` or `/path/to/local/model` | Direct passthrough to Hugging Face `transformers.pipeline`. |
+| **CUSTOM** | *Any string* | E.g. `your-org/custom-model` or `/path/to/local/model` | Passed to `from_pretrained`; must be a Qwen3-ASR (`-hf`) checkpoint. |
 
 Model selection can be configured in three ways:
 1. CLI argument: `python serve.py --model Qwen3-ASR-1.7B` or `python asr_server.py --model Qwen3-ASR-1.7B`

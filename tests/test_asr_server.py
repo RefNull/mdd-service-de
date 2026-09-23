@@ -24,7 +24,7 @@ os.environ["SKIP_MODEL_LOAD"] = "1"
 from asr_server import (
     MODEL_ID,
     app,
-    get_pipeline,
+    get_transcriber,
     parse_args,
     resolve_device_and_dtype,
     resolve_model_id,
@@ -49,11 +49,10 @@ def synthetic_wav_bytes():
 
 
 @pytest.fixture
-def mock_pipeline(monkeypatch):
-    """Mock the ASR pipeline returned by get_pipeline."""
-    mock = MagicMock()
-    mock.return_value = {"text": "Ich habe morgen einen Termin beim Arzt."}
-    monkeypatch.setattr("asr_server.get_pipeline", lambda: mock)
+def mock_transcriber(monkeypatch):
+    """Mock the (audio_bytes, language) -> text callable returned by get_transcriber."""
+    mock = MagicMock(return_value="Ich habe morgen einen Termin beim Arzt.")
+    monkeypatch.setattr("asr_server.get_transcriber", lambda: mock)
     return mock
 
 
@@ -77,7 +76,7 @@ def test_health_endpoint(client):
     assert data["model"] == MODEL_ID
 
 
-def test_transcription_success(client, mock_pipeline, synthetic_wav_bytes):
+def test_transcription_success(client, mock_transcriber, synthetic_wav_bytes):
     """POST /v1/audio/transcriptions should transcribe audio and return standard OpenAI-compatible format."""
     files = {"file": ("recording.wav", synthetic_wav_bytes, "audio/wav")}
     response = client.post("/v1/audio/transcriptions", files=files)
@@ -86,34 +85,28 @@ def test_transcription_success(client, mock_pipeline, synthetic_wav_bytes):
     data = response.json()
     assert data == {"text": "Ich habe morgen einen Termin beim Arzt."}
 
-    # Verify pipeline was called with generate_kwargs={"language": "de"}
-    assert mock_pipeline.called
-    call_args, call_kwargs = mock_pipeline.call_args
-    assert len(call_args) == 1
-    assert call_args[0].endswith(".wav")
-    assert call_kwargs.get("generate_kwargs") == {"language": "de"}
+    # Language is forwarded positionally to the transcriber, default "de"
+    assert mock_transcriber.called
+    call_args, _ = mock_transcriber.call_args
+    assert call_args == (synthetic_wav_bytes, "de")
 
 
-def test_transcription_custom_language(client, mock_pipeline, synthetic_wav_bytes):
+def test_transcription_custom_language(client, mock_transcriber, synthetic_wav_bytes):
     """POST /v1/audio/transcriptions with custom language parameter."""
     files = {"file": ("recording.wav", synthetic_wav_bytes, "audio/wav")}
     data = {"language": "en"}
     response = client.post("/v1/audio/transcriptions", files=files, data=data)
 
     assert response.status_code == 200
-    _, call_kwargs = mock_pipeline.call_args
-    assert call_kwargs.get("generate_kwargs") == {"language": "en"}
+    assert mock_transcriber.call_args.args[1] == "en"
 
 
-def test_transcription_string_return_from_pipeline(client, monkeypatch, synthetic_wav_bytes):
-    """Verify handling when pipeline returns a raw string rather than a dict."""
-    mock = MagicMock(return_value="Direkter Transkriptionstext")
-    monkeypatch.setattr("asr_server.get_pipeline", lambda: mock)
+def test_transcription_blank_language_autodetects(client, mock_transcriber, synthetic_wav_bytes):
+    """A blank language form field is passed as None so Qwen3-ASR auto-detects."""
     files = {"file": ("audio.wav", synthetic_wav_bytes, "audio/wav")}
-    response = client.post("/v1/audio/transcriptions", files=files)
-
+    response = client.post("/v1/audio/transcriptions", files=files, data={"language": " "})
     assert response.status_code == 200
-    assert response.json() == {"text": "Direkter Transkriptionstext"}
+    assert mock_transcriber.call_args.args[1] is None
 
 
 def test_transcription_empty_file(client):
@@ -132,8 +125,8 @@ def test_transcription_missing_file(client):
 
 
 def test_transcription_pipeline_not_initialized(client, monkeypatch):
-    """Calling transcription when pipeline is None should return 503 Service Unavailable."""
-    monkeypatch.setattr("asr_server.get_pipeline", lambda: None)
+    """Calling transcription when the model is not loaded should return 503 Service Unavailable."""
+    monkeypatch.setattr("asr_server.get_transcriber", lambda: None)
     files = {"file": ("test.wav", make_synthetic_wav(), "audio/wav")}
     response = client.post("/v1/audio/transcriptions", files=files)
     assert response.status_code == 503
@@ -143,7 +136,7 @@ def test_transcription_pipeline_not_initialized(client, monkeypatch):
 def test_transcription_pipeline_failure(client, monkeypatch, synthetic_wav_bytes):
     """Pipeline failure should return 500 and clean up temporary files."""
     mock = MagicMock(side_effect=RuntimeError("Audio decoding failed"))
-    monkeypatch.setattr("asr_server.get_pipeline", lambda: mock)
+    monkeypatch.setattr("asr_server.get_transcriber", lambda: mock)
     files = {"file": ("corrupt.wav", synthetic_wav_bytes, "audio/wav")}
     response = client.post("/v1/audio/transcriptions", files=files)
 

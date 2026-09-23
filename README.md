@@ -144,13 +144,30 @@ models:
     ttl: 3600
     healthCheckTimeout: 180
     checkEndpoint: /health
+
+# Keep ASR and pronunciation models loaded simultaneously in VRAM
+groups:
+  pipeline:
+    swap: false
+    members:
+      - qwen3-asr
+      - qwen3-asr-1.7b
+      - openpronounce
 ```
 
-Launch the `llama-swap` daemon:
+Launch the `llama-swap` daemon on a fixed public port (e.g. `8080`):
 
 ```bash
 llama-swap --config llama-swap.yaml --port 8080
 ```
+
+#### How Ports Work with `llama-swap`
+- **External Client Access (Fixed Port)**: External apps (FreeLingo, web/mobile frontends, `cli.py`) connect to a **single fixed port** on the `llama-swap` daemon (e.g. `http://localhost:8080`). External clients never need to know or track individual microservice ports.
+- **Internal Worker Allocation (`${PORT}`)**: Inside `cmd`, `--port ${PORT}` instructs `llama-swap` to automatically allocate an ephemeral loopback port (e.g. `5800`, `5801`) on `127.0.0.1` and route incoming requests there.
+- **Optional Static Backend Ports**: If you specifically prefer static backend ports instead of dynamic allocation, you must explicitly declare both `cmd` and `proxy` (e.g. `cmd: ... --port 8001` and `proxy: http://127.0.0.1:8001`). If `proxy` is omitted, `llama-swap` expects `--port ${PORT}`.
+
+#### Why `swap: false` is Required
+By default, `llama-swap` enforces mutual model eviction (`swap: true`), unloading the previous model whenever a different model is called. Because speech evaluation is a two-step sequence (Step 1 ASR $\to$ Step 2 Pronunciation), default swapping would evict Qwen3 to load Wav2Vec2 and vice-versa on every recording. Setting `swap: false` in a shared group keeps both models co-resident in VRAM for instant interactive evaluation, unloading them only after the 1-hour inactivity `ttl`.
 
 ### 4. CLI Usage
 
@@ -231,11 +248,28 @@ The two microservices are **independent and decoupled**. They do not communicate
 
 Client applications (such as web frontends, mobile language-learning apps like FreeLingo, or backend API gateways) coordinate both services as needed.
 
+### Choosing Your Endpoint URLs
+
+Depending on how `mdd-service-de` is deployed, your application points to either fixed microservice ports or a single `llama-swap` port:
+
+| Endpoint | Direct / Combined (`serve.py`) | Through `llama-swap` (Port 8080) |
+|---|---|---|
+| **Pronunciation Assessment** | `POST http://localhost:8002/assess` | `POST http://localhost:8080/upstream/openpronounce/assess` |
+| **ASR Fluency Transcription** | `POST http://localhost:8001/v1/audio/transcriptions` | `POST http://localhost:8080/v1/audio/transcriptions` *(requires `model` field)* |
+
 ### Client Integration Example (TypeScript / Web Frontend)
 
 In a web or mobile language learning client (e.g. FreeLingo):
 
 ```typescript
+// --- Option A: Direct or Combined Deployment (serve.py) ---
+const PRONOUNCE_URL = "http://localhost:8002/assess";
+const ASR_URL = "http://localhost:8001/v1/audio/transcriptions";
+
+// --- Option B: Via llama-swap (single fixed port) ---
+// const PRONOUNCE_URL = "http://localhost:8080/upstream/openpronounce/assess";
+// const ASR_URL = "http://localhost:8080/v1/audio/transcriptions";
+
 // 1. Send recorded audio for pronunciation assessment
 async function evaluatePronunciation(audioBlob: Blob, targetSentence: string) {
   const formData = new FormData();
@@ -243,7 +277,7 @@ async function evaluatePronunciation(audioBlob: Blob, targetSentence: string) {
   formData.append("expected_text", targetSentence);
   formData.append("lang", "de");
 
-  const response = await fetch("http://localhost:8002/assess", {
+  const response = await fetch(PRONOUNCE_URL, {
     method: "POST",
     body: formData,
   });
@@ -258,12 +292,15 @@ async function evaluatePronunciation(audioBlob: Blob, targetSentence: string) {
 }
 
 // 2. Optionally send recorded audio for open-ended ASR transcription
-async function transcribeSpeech(audioBlob: Blob) {
+async function transcribeSpeech(audioBlob: Blob, useLlamaSwap: boolean = false) {
   const formData = new FormData();
   formData.append("file", audioBlob, "recording.wav");
   formData.append("language", "de");
+  if (useLlamaSwap) {
+    formData.append("model", "qwen3-asr"); // Required by llama-swap router
+  }
 
-  const response = await fetch("http://localhost:8001/v1/audio/transcriptions", {
+  const response = await fetch(ASR_URL, {
     method: "POST",
     body: formData,
   });
@@ -279,19 +316,27 @@ async function transcribeSpeech(audioBlob: Blob) {
 ```python
 import httpx
 
-# Assess pronunciation
+# Direct (serve.py / standalone)
+PRONOUNCE_URL = "http://localhost:8002/assess"
+ASR_URL = "http://localhost:8001/v1/audio/transcriptions"
+
+# Or via llama-swap router:
+# PRONOUNCE_URL = "http://localhost:8080/upstream/openpronounce/assess"
+# ASR_URL = "http://localhost:8080/v1/audio/transcriptions"
+
+# 1. Assess pronunciation
 with open("recording.wav", "rb") as f:
     files = {"file": ("recording.wav", f, "audio/wav")}
     data = {"expected_text": "Ich habe morgen einen Termin beim Arzt.", "lang": "de"}
-    response = httpx.post("http://localhost:8002/assess", data=data, files=files)
+    response = httpx.post(PRONOUNCE_URL, data=data, files=files)
     assessment = response.json()
     print(f"Score: {assessment['score']}, PER: {assessment['phoneme_error_rate']}")
 
-# Transcribe audio via ASR
+# 2. Transcribe audio via ASR
 with open("recording.wav", "rb") as f:
     files = {"file": ("recording.wav", f, "audio/wav")}
-    data = {"language": "de"}
-    response = httpx.post("http://localhost:8001/v1/audio/transcriptions", data=data, files=files)
+    data = {"language": "de", "model": "qwen3-asr"}
+    response = httpx.post(ASR_URL, data=data, files=files)
     transcription = response.json()
     print(f"Transcribed: {transcription['text']}")
 ```

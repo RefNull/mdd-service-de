@@ -19,3 +19,16 @@ models:
     ttl: 3600
     healthCheckTimeout: 180
     checkEndpoint: /health
+
+# Group definition to allow concurrent execution without mutual eviction.
+# By default, llama-swap unloads the previous model when a new one is requested.
+# Setting swap: false ensures qwen3-asr and openpronounce stay loaded in VRAM
+# simultaneously throughout the 2-step assessment flow, avoiding reload latency.
+groups:
+  pipeline:
+    swap: false
+    members:
+      - qwen3-asr
+      - qwen3-asr-1.7b
+      - openpronounce
+

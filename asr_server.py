@@ -23,6 +23,7 @@ import tempfile
 from typing import Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 import torch
 
 logger = logging.getLogger("asr_server")
@@ -78,6 +79,14 @@ app = FastAPI(
     title="Qwen3-ASR Fluency Service",
     description="FastAPI microservice wrapping Qwen3-ASR for German speech fluency transcription",
     version="1.0.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 

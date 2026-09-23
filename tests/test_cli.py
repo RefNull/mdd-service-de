@@ -160,6 +160,35 @@ def test_record_audio_stream_failure():
             record_audio(input_fn=lambda prompt="": None)
 
 
+def test_record_audio_sounddevice_missing():
+    """Verify informative RuntimeError when sounddevice is None."""
+    with patch("cli.sd", None):
+        with pytest.raises(RuntimeError, match="Microphone recording is unavailable"):
+            record_audio(input_fn=lambda prompt="": None)
+
+
+def test_main_pre_recorded_audio_without_sounddevice(tmp_path):
+    """Verify --audio-file works seamlessly even if sounddevice is None (headless/SSH)."""
+    sample_wav = tmp_path / "test.wav"
+    sample_wav.write_bytes(b"RIFF" + b"\x00" * 100)
+
+    with patch("cli.sd", None), \
+         patch("cli.query_asr", return_value="Ich habe morgen einen Termin."), \
+         patch("cli.query_pronounce", return_value={
+             "score": 90.0,
+             "transcription": "Ich habe morgen einen Termin.",
+             "phoneme_error_rate": 0.05,
+             "errors": []
+         }):
+        exit_code = main([
+            "--text", "Ich habe morgen einen Termin.",
+            "--audio-file", str(sample_wav),
+            "--direct"
+        ])
+        assert exit_code == 0
+
+
+
 # ---------------------------------------------------------------------------
 # Step 1: Fluency / ASR Service Tests
 # ---------------------------------------------------------------------------

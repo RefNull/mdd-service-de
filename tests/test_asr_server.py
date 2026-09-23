@@ -226,3 +226,19 @@ def test_parse_args(monkeypatch):
     monkeypatch.setenv("MDD_ASR_MODEL", "1.7b")
     env_args = parse_args([])
     assert env_args.model_id == "Qwen/Qwen3-ASR-1.7B-hf"
+
+
+def test_cors_headers(client):
+    """Verify CORS headers are present for cross-origin browser requests."""
+    response = client.options(
+        "/v1/audio/transcriptions",
+        headers={
+            "Origin": "http://192.168.1.50:8000",
+            "Access-Control-Request-Method": "POST",
+        },
+    )
+    assert response.status_code == 200
+    assert response.headers.get("access-control-allow-origin") == "http://192.168.1.50:8000"
+    assert response.headers.get("access-control-allow-credentials") == "true"
+
+

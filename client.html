@@ -1,0 +1,1076 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MDD Service DE — Speech Fluency & Pronunciation Tester</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --card-border: #334155;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --primary: #38bdf8;
+      --primary-hover: #0284c7;
+      --success: #22c55e;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: var(--font-sans);
+      line-height: 1.5;
+      padding: 1.5rem;
+      min-height: 100vh;
+    }
+
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+    }
+
+    header {
+      border-bottom: 1px solid var(--card-border);
+      padding-bottom: 1rem;
+    }
+
+    header h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    header p {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      margin-top: 0.25rem;
+    }
+
+    .badge {
+      display: inline-block;
+      font-size: 0.75rem;
+      font-family: var(--font-mono);
+      padding: 0.2rem 0.5rem;
+      border-radius: 9999px;
+      background: var(--card-border);
+      color: var(--text-muted);
+    }
+    .badge.success { background: rgba(34, 197, 94, 0.2); color: var(--success); }
+    .badge.danger { background: rgba(239, 68, 68, 0.2); color: var(--danger); }
+    .badge.warning { background: rgba(245, 158, 11, 0.2); color: var(--warning); }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 0.75rem;
+      padding: 1.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .card-title {
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .row {
+      display: flex;
+      gap: 0.75rem;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      flex: 1;
+      min-width: 240px;
+    }
+
+    label {
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--text-muted);
+    }
+
+    input[type="text"], textarea {
+      background: #090d16;
+      border: 1px solid var(--card-border);
+      border-radius: 0.5rem;
+      padding: 0.5rem 0.75rem;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 0.9rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    input[type="text"]:focus, textarea:focus {
+      border-color: var(--primary);
+    }
+
+    textarea {
+      resize: vertical;
+      min-height: 70px;
+    }
+
+    button {
+      background: var(--primary);
+      color: #0f172a;
+      border: none;
+      border-radius: 0.5rem;
+      padding: 0.55rem 1rem;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.4rem;
+      transition: all 0.15s ease-in-out;
+    }
+
+    button:hover:not(:disabled) {
+      background: var(--primary-hover);
+      color: #ffffff;
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    button.secondary {
+      background: var(--card-border);
+      color: var(--text);
+    }
+
+    button.secondary:hover:not(:disabled) {
+      background: #475569;
+    }
+
+    button.danger {
+      background: var(--danger);
+      color: #ffffff;
+    }
+
+    button.danger:hover:not(:disabled) {
+      background: #dc2626;
+    }
+
+    .btn-group {
+      display: inline-flex;
+      border-radius: 0.5rem;
+      overflow: hidden;
+      border: 1px solid var(--card-border);
+    }
+
+    .btn-group button {
+      border-radius: 0;
+      background: transparent;
+      color: var(--text-muted);
+      padding: 0.35rem 0.75rem;
+      font-size: 0.8rem;
+      border-right: 1px solid var(--card-border);
+    }
+
+    .btn-group button:last-child {
+      border-right: none;
+    }
+
+    .btn-group button.active {
+      background: var(--card-border);
+      color: var(--primary);
+    }
+
+    .presets-container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+    }
+
+    .preset-pill {
+      background: #090d16;
+      border: 1px solid var(--card-border);
+      color: var(--text-muted);
+      border-radius: 9999px;
+      padding: 0.25rem 0.65rem;
+      font-size: 0.78rem;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .preset-pill:hover {
+      border-color: var(--primary);
+      color: var(--text);
+    }
+
+    /* Audio Recording controls */
+    .record-box {
+      border: 2px dashed var(--card-border);
+      border-radius: 0.75rem;
+      padding: 1.5rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 1rem;
+      background: rgba(15, 23, 42, 0.4);
+      text-align: center;
+    }
+
+    .record-box.recording {
+      border-color: var(--danger);
+      background: rgba(239, 68, 68, 0.05);
+    }
+
+    .record-btn {
+      width: 70px;
+      height: 70px;
+      border-radius: 50%;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.8rem;
+      transition: transform 0.2s, background-color 0.2s;
+    }
+
+    .record-btn.recording {
+      animation: pulse 1.5s infinite;
+      background: var(--danger);
+      color: #fff;
+    }
+
+    @keyframes pulse {
+      0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+      70% { transform: scale(1.08); box-shadow: 0 0 0 12px rgba(239, 68, 68, 0); }
+      100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+    }
+
+    .record-timer {
+      font-family: var(--font-mono);
+      font-size: 1.2rem;
+      font-weight: 700;
+      color: var(--text-muted);
+    }
+
+    .record-timer.recording {
+      color: var(--danger);
+    }
+
+    audio {
+      width: 100%;
+      max-width: 400px;
+      height: 38px;
+    }
+
+    .alert {
+      padding: 0.75rem 1rem;
+      border-radius: 0.5rem;
+      font-size: 0.85rem;
+      display: flex;
+      align-items: flex-start;
+      gap: 0.5rem;
+    }
+    .alert.info {
+      background: rgba(56, 189, 248, 0.1);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      color: #7dd3fc;
+    }
+    .alert.error {
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      color: #fca5a5;
+    }
+
+    /* Score meter */
+    .score-container {
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+      flex-wrap: wrap;
+    }
+
+    .score-circle {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      width: 110px;
+      height: 110px;
+      border-radius: 50%;
+      border: 5px solid var(--card-border);
+      font-family: var(--font-mono);
+      font-weight: 700;
+      font-size: 1.6rem;
+      color: var(--text);
+    }
+
+    .score-circle span {
+      font-size: 0.7rem;
+      font-weight: 400;
+      color: var(--text-muted);
+    }
+
+    .score-circle.green { border-color: var(--success); color: var(--success); }
+    .score-circle.yellow { border-color: var(--warning); color: var(--warning); }
+    .score-circle.red { border-color: var(--danger); color: var(--danger); }
+
+    .score-details {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      min-width: 250px;
+    }
+
+    .progress-bar-bg {
+      background: #090d16;
+      border-radius: 9999px;
+      height: 12px;
+      overflow: hidden;
+      border: 1px solid var(--card-border);
+    }
+
+    .progress-bar-fill {
+      height: 100%;
+      width: 0%;
+      transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .progress-bar-fill.green { background: var(--success); }
+    .progress-bar-fill.yellow { background: var(--warning); }
+    .progress-bar-fill.red { background: var(--danger); }
+
+    .comparison-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 1rem;
+    }
+
+    .comparison-card {
+      background: #090d16;
+      border: 1px solid var(--card-border);
+      border-radius: 0.5rem;
+      padding: 0.75rem 1rem;
+    }
+
+    .comparison-card .label {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .comparison-card .value {
+      font-size: 0.95rem;
+      font-weight: 500;
+      margin-top: 0.35rem;
+      word-break: break-word;
+    }
+
+    /* Table styles */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+      text-align: left;
+    }
+
+    th {
+      background: #090d16;
+      color: var(--text-muted);
+      padding: 0.5rem 0.75rem;
+      font-weight: 600;
+      border-bottom: 1px solid var(--card-border);
+    }
+
+    td {
+      padding: 0.6rem 0.75rem;
+      border-bottom: 1px solid var(--card-border);
+    }
+
+    tr:last-child td {
+      border-bottom: none;
+    }
+
+    .ipa {
+      font-family: var(--font-mono);
+      color: var(--primary);
+    }
+
+    details summary {
+      cursor: pointer;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      outline: none;
+      user-select: none;
+    }
+
+    pre {
+      background: #090d16;
+      border: 1px solid var(--card-border);
+      border-radius: 0.5rem;
+      padding: 0.75rem;
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      overflow-x: auto;
+      max-height: 250px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>
+        <span>🎙️</span>
+        <span>MDD Service DE</span>
+        <span class="badge">Network Test Client</span>
+      </h1>
+      <p>Test German speech fluency (Qwen3-ASR) and phoneme-level pronunciation diagnosis (OpenPronounce) over LAN.</p>
+    </header>
+
+    <!-- Configuration Card -->
+    <div class="card">
+      <div class="card-title">
+        <span>Backend Endpoint Configuration</span>
+        <div class="btn-group">
+          <button id="btnModeDirect" class="active" onclick="setMode('direct')">Direct (serve.py)</button>
+          <button id="btnModeRouter" onclick="setMode('router')">llama-swap Router</button>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="form-group" style="max-width: 250px;">
+          <label for="serverHost">Server Host / LAN IP</label>
+          <input type="text" id="serverHost" placeholder="e.g. 192.168.1.50 or localhost" value="localhost">
+        </div>
+        <div class="form-group">
+          <label for="asrUrl">ASR Endpoint (Fluency)</label>
+          <input type="text" id="asrUrl" value="http://localhost:8001/v1/audio/transcriptions">
+        </div>
+        <div class="form-group">
+          <label for="pronounceUrl">Pronounce Endpoint (Phonetics)</label>
+          <input type="text" id="pronounceUrl" value="http://localhost:8002/assess">
+        </div>
+      </div>
+
+      <div class="row" style="justify-content: space-between;">
+        <button type="button" class="secondary" onclick="pingEndpoints()">
+          <span>⚡</span> Check Connection
+        </button>
+        <div class="row" id="connectionBadges">
+          <span id="badgeAsr" class="badge">ASR: Unchecked</span>
+          <span id="badgePronounce" class="badge">Pronounce: Unchecked</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Target German Sentence Card -->
+    <div class="card">
+      <div class="card-title">
+        <span>Target German Sentence</span>
+      </div>
+      <div class="form-group">
+        <textarea id="expectedText" placeholder="Enter expected German sentence to evaluate...">Ich habe morgen einen Termin beim Arzt.</textarea>
+      </div>
+      <div>
+        <label style="display:block; margin-bottom: 0.35rem;">Quick Sample Sentences:</label>
+        <div class="presets-container">
+          <div class="preset-pill" onclick="setSample('Ich habe morgen einen Termin beim Arzt.')">Ich habe morgen einen Termin beim Arzt.</div>
+          <div class="preset-pill" onclick="setSample('Guten Tag, wie geht es Ihnen heute?')">Guten Tag, wie geht es Ihnen heute?</div>
+          <div class="preset-pill" onclick="setSample('Übung macht den Meister, aber Deutsch ist nicht leicht.')">Übung macht den Meister...</div>
+          <div class="preset-pill" onclick="setSample('Zwei Flaschen Wasser und ein Brötchen, bitte.')">Zwei Flaschen Wasser und ein Brötchen, bitte.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Audio Input Card -->
+    <div class="card">
+      <div class="card-title">
+        <span>Audio Recording & Input</span>
+        <span id="audioStatusBadge" class="badge">No Audio</span>
+      </div>
+
+      <!-- Insecure context alert if mic unavailable -->
+      <div id="insecureAlert" class="alert info" style="display: none;">
+        <span>ℹ️</span>
+        <div>
+          <strong>Microphone Security Notice:</strong> Browsers require a secure context (<code>https://</code> or <code>http://localhost</code>) for microphone access. If accessing via an unencrypted LAN IP (e.g. <code>http://192.168.x.x</code>), either open this file locally via <code>file://</code> or use the <strong>File Upload</strong> button below.
+        </div>
+      </div>
+
+      <div class="record-box" id="recordBox">
+        <button id="recordBtn" class="record-btn" type="button" onclick="toggleRecording()">🎙️</button>
+        <div class="record-timer" id="recordTimer">00:00</div>
+        <p id="recordInstruction" style="font-size: 0.85rem; color: var(--text-muted);">Click microphone to start recording German speech</p>
+        <audio id="audioPreview" controls style="display: none;"></audio>
+      </div>
+
+      <div class="row" style="align-items: center; justify-content: space-between; border-top: 1px solid var(--card-border); padding-top: 1rem;">
+        <div class="form-group" style="max-width: 320px;">
+          <label for="audioFileInput">Or Upload Audio File (.wav, .ogg, .webm, .mp3):</label>
+          <input type="file" id="audioFileInput" accept="audio/*" onchange="handleFileUpload(event)">
+        </div>
+        <button id="btnEvaluate" type="button" disabled onclick="evaluateSpeech()" style="padding: 0.75rem 1.5rem;">
+          <span>🚀</span> Assess Pronunciation
+        </button>
+      </div>
+
+      <div id="evalAlert" class="alert error" style="display: none;"></div>
+    </div>
+
+    <!-- Results Card -->
+    <div class="card" id="resultsCard" style="display: none;">
+      <div class="card-title">
+        <span>Assessment Results</span>
+        <span id="resultSummaryBadge" class="badge success">Evaluated</span>
+      </div>
+
+      <!-- Score Bar -->
+      <div class="score-container">
+        <div class="score-circle" id="scoreCircle">
+          <div id="scoreValue">--</div>
+          <span>SCORE / 100</span>
+        </div>
+        <div class="score-details">
+          <div style="display: flex; justify-content: space-between; font-size: 0.85rem;">
+            <span>Overall Pronunciation Quality</span>
+            <span id="perValue" class="badge">PER: --%</span>
+          </div>
+          <div class="progress-bar-bg">
+            <div id="scoreProgressBar" class="progress-bar-fill"></div>
+          </div>
+          <p id="scoreFeedback" style="font-size: 0.82rem; color: var(--text-muted);"></p>
+        </div>
+      </div>
+
+      <!-- 3-Way Comparison -->
+      <div class="comparison-grid">
+        <div class="comparison-card">
+          <div class="label">Target Reference</div>
+          <div class="value" id="compTarget">--</div>
+        </div>
+        <div class="comparison-card">
+          <div class="label">Fluency Transcription (Qwen3-ASR)</div>
+          <div class="value" id="compAsr">--</div>
+        </div>
+        <div class="comparison-card">
+          <div class="label">Acoustic Transcription (OpenPronounce)</div>
+          <div class="value" id="compAcoustic">--</div>
+        </div>
+      </div>
+
+      <!-- Phonetic Errors Table -->
+      <div id="errorsSection">
+        <div style="font-weight: 600; font-size: 0.9rem; margin-bottom: 0.5rem; color: var(--text);">
+          Phonetic Mismatches & Flagged Words:
+        </div>
+        <div style="overflow-x: auto;">
+          <table id="errorsTable">
+            <thead>
+              <tr>
+                <th>Word</th>
+                <th>Expected (IPA)</th>
+                <th>Heard (IPA)</th>
+                <th>Confidence</th>
+                <th>Diagnosis</th>
+              </tr>
+            </thead>
+            <tbody id="errorsTableBody">
+            </tbody>
+          </table>
+        </div>
+        <div id="noErrorsBanner" class="alert info" style="display: none; margin-top: 0.5rem;">
+          <span>🎉</span> <strong>Ausgezeichnet!</strong> Perfect pronunciation! No phonetic errors detected.
+        </div>
+      </div>
+
+      <!-- Raw JSON collapsible -->
+      <details style="margin-top: 0.5rem;">
+        <summary>View Raw JSON Response</summary>
+        <pre id="rawJsonResponse">{}</pre>
+      </details>
+    </div>
+  </div>
+
+  <script>
+    // State
+    let currentMode = 'direct';
+    let isRecording = false;
+    let audioBlob = null;
+    let mediaRecorder = null;
+    let audioStream = null;
+    let audioChunks = [];
+    let timerInterval = null;
+    let secondsElapsed = 0;
+
+    // Load saved settings
+    window.addEventListener('DOMContentLoaded', () => {
+      // Check secure context for mic
+      if (!window.isSecureContext && (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia)) {
+        document.getElementById('insecureAlert').style.display = 'flex';
+      }
+
+      const savedHost = localStorage.getItem('mdd_server_host');
+      const savedMode = localStorage.getItem('mdd_mode');
+      if (savedHost) {
+        document.getElementById('serverHost').value = savedHost;
+      } else if (window.location.hostname && window.location.hostname !== "") {
+        document.getElementById('serverHost').value = window.location.hostname;
+      }
+
+      if (savedMode) {
+        setMode(savedMode, false);
+      } else {
+        updateEndpoints();
+      }
+
+      document.getElementById('serverHost').addEventListener('input', () => {
+        localStorage.setItem('mdd_server_host', document.getElementById('serverHost').value.trim());
+        updateEndpoints();
+      });
+
+      document.getElementById('asrUrl').addEventListener('input', () => {
+        localStorage.setItem('mdd_asr_url', document.getElementById('asrUrl').value.trim());
+      });
+
+      document.getElementById('pronounceUrl').addEventListener('input', () => {
+        localStorage.setItem('mdd_pronounce_url', document.getElementById('pronounceUrl').value.trim());
+      });
+    });
+
+    function setMode(mode, save = true) {
+      currentMode = mode;
+      document.getElementById('btnModeDirect').className = mode === 'direct' ? 'active' : '';
+      document.getElementById('btnModeRouter').className = mode === 'router' ? 'active' : '';
+      if (save) localStorage.setItem('mdd_mode', mode);
+      updateEndpoints();
+    }
+
+    function updateEndpoints() {
+      const host = document.getElementById('serverHost').value.trim() || 'localhost';
+      if (currentMode === 'direct') {
+        document.getElementById('asrUrl').value = `http://${host}:8001/v1/audio/transcriptions`;
+        document.getElementById('pronounceUrl').value = `http://${host}:8002/assess`;
+      } else {
+        document.getElementById('asrUrl').value = `http://${host}:8080/v1/audio/transcriptions`;
+        document.getElementById('pronounceUrl').value = `http://${host}:8080/upstream/openpronounce/assess`;
+      }
+      localStorage.setItem('mdd_asr_url', document.getElementById('asrUrl').value);
+      localStorage.setItem('mdd_pronounce_url', document.getElementById('pronounceUrl').value);
+    }
+
+    function setSample(text) {
+      document.getElementById('expectedText').value = text;
+    }
+
+    async function pingEndpoints() {
+      const host = document.getElementById('serverHost').value.trim() || 'localhost';
+      const badgeAsr = document.getElementById('badgeAsr');
+      const badgePronounce = document.getElementById('badgePronounce');
+
+      badgeAsr.className = 'badge';
+      badgeAsr.textContent = 'ASR: Checking...';
+      badgePronounce.className = 'badge';
+      badgePronounce.textContent = 'Pronounce: Checking...';
+
+      // Check ASR
+      try {
+        const asrHealthUrl = currentMode === 'direct'
+          ? `http://${host}:8001/health`
+          : `http://${host}:8080/health`;
+        const res = await fetch(asrHealthUrl, { method: 'GET', signal: AbortSignal.timeout(3000) });
+        if (res.ok) {
+          const data = await res.json();
+          badgeAsr.className = 'badge success';
+          badgeAsr.textContent = `ASR: UP (${data.model || 'ok'})`;
+        } else {
+          badgeAsr.className = 'badge danger';
+          badgeAsr.textContent = `ASR: Error (${res.status})`;
+        }
+      } catch (err) {
+        badgeAsr.className = 'badge danger';
+        badgeAsr.textContent = 'ASR: Offline / Refused';
+      }
+
+      // Check Pronounce
+      try {
+        const pHealthUrl = currentMode === 'direct'
+          ? `http://${host}:8002/health`
+          : `http://${host}:8080/health`;
+        const res = await fetch(pHealthUrl, { method: 'GET', signal: AbortSignal.timeout(3000) });
+        if (res.ok) {
+          const data = await res.json();
+          badgePronounce.className = 'badge success';
+          badgePronounce.textContent = `Pronounce: UP (${data.device || 'ok'})`;
+        } else {
+          badgePronounce.className = 'badge danger';
+          badgePronounce.textContent = `Pronounce: Error (${res.status})`;
+        }
+      } catch (err) {
+        badgePronounce.className = 'badge danger';
+        badgePronounce.textContent = 'Pronounce: Offline / Refused';
+      }
+    }
+
+    // Audio Recording
+    async function toggleRecording() {
+      if (isRecording) {
+        stopRecording();
+      } else {
+        startRecording();
+      }
+    }
+
+    async function startRecording() {
+      const btn = document.getElementById('recordBtn');
+      const box = document.getElementById('recordBox');
+      const timer = document.getElementById('recordTimer');
+      const inst = document.getElementById('recordInstruction');
+      const evalAlert = document.getElementById('evalAlert');
+      evalAlert.style.display = 'none';
+
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        evalAlert.textContent = 'Microphone access is not available in this browser context (requires https:// or localhost). Please use the file upload option below.';
+        evalAlert.style.display = 'flex';
+        return;
+      }
+
+      try {
+        audioStream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, sampleRate: 16000 } });
+        audioChunks = [];
+        
+        // Pick best supported MIME type
+        let mimeType = 'audio/webm';
+        if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+          mimeType = 'audio/webm;codecs=opus';
+        } else if (MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')) {
+          mimeType = 'audio/ogg;codecs=opus';
+        } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+          mimeType = 'audio/mp4';
+        }
+
+        mediaRecorder = new MediaRecorder(audioStream, { mimeType });
+        mediaRecorder.ondataavailable = (e) => {
+          if (e.data && e.data.size > 0) audioChunks.push(e.data);
+        };
+
+        mediaRecorder.onstop = () => {
+          const rawBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType });
+          convertBlobToWav(rawBlob);
+        };
+
+        mediaRecorder.start(100);
+        isRecording = true;
+        btn.textContent = '⏹️';
+        btn.classList.add('recording');
+        box.classList.add('recording');
+        timer.classList.add('recording');
+        inst.textContent = 'Recording in progress... Click stop button when finished speaking';
+
+        secondsElapsed = 0;
+        timer.textContent = '00:00';
+        timerInterval = setInterval(() => {
+          secondsElapsed++;
+          const m = String(Math.floor(secondsElapsed / 60)).padStart(2, '0');
+          const s = String(secondsElapsed % 60).padStart(2, '0');
+          timer.textContent = `${m}:${s}`;
+        }, 1000);
+      } catch (err) {
+        evalAlert.textContent = `Microphone capture failed: ${err.message}`;
+        evalAlert.style.display = 'flex';
+      }
+    }
+
+    function stopRecording() {
+      if (!isRecording) return;
+      isRecording = false;
+      clearInterval(timerInterval);
+
+      if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
+      }
+      if (audioStream) {
+        audioStream.getTracks().forEach(track => track.stop());
+      }
+
+      const btn = document.getElementById('recordBtn');
+      const box = document.getElementById('recordBox');
+      const timer = document.getElementById('recordTimer');
+      const inst = document.getElementById('recordInstruction');
+
+      btn.textContent = '🎙️';
+      btn.classList.remove('recording');
+      box.classList.remove('recording');
+      timer.classList.remove('recording');
+      inst.textContent = 'Audio recorded. Click "Assess Pronunciation" to evaluate.';
+    }
+
+    // Convert any audio blob to 16kHz mono WAV using Web Audio API
+    async function convertBlobToWav(blob) {
+      try {
+        const arrayBuffer = await blob.arrayBuffer();
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+        const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+        
+        // Extract channel 0
+        const pcmData = audioBuffer.getChannelData(0);
+        const wavBuffer = encodeWAV(pcmData, audioBuffer.sampleRate);
+        audioBlob = new Blob([wavBuffer], { type: 'audio/wav' });
+
+        const preview = document.getElementById('audioPreview');
+        preview.src = URL.createObjectURL(audioBlob);
+        preview.style.display = 'block';
+
+        document.getElementById('audioStatusBadge').className = 'badge success';
+        document.getElementById('audioStatusBadge').textContent = `Recorded (${(audioBlob.size / 1024).toFixed(1)} KB WAV)`;
+        document.getElementById('btnEvaluate').disabled = false;
+        audioCtx.close();
+      } catch (err) {
+        // Fallback: use raw blob directly if decode fails
+        audioBlob = blob;
+        const preview = document.getElementById('audioPreview');
+        preview.src = URL.createObjectURL(blob);
+        preview.style.display = 'block';
+        document.getElementById('audioStatusBadge').className = 'badge success';
+        document.getElementById('audioStatusBadge').textContent = `Recorded (${(blob.size / 1024).toFixed(1)} KB)`;
+        document.getElementById('btnEvaluate').disabled = false;
+      }
+    }
+
+    // 16-bit PCM WAV Encoder helper
+    function encodeWAV(samples, sampleRate) {
+      const buffer = new ArrayBuffer(44 + samples.length * 2);
+      const view = new DataView(buffer);
+
+      function writeString(offset, string) {
+        for (let i = 0; i < string.length; i++) {
+          view.setUint8(offset + i, string.charCodeAt(i));
+        }
+      }
+
+      writeString(0, 'RIFF');
+      view.setUint32(4, 36 + samples.length * 2, true);
+      writeString(8, 'WAVE');
+      writeString(12, 'fmt ');
+      view.setUint32(16, 16, true);
+      view.setUint16(20, 1, true); // PCM format
+      view.setUint16(22, 1, true); // Mono
+      view.setUint32(24, sampleRate, true);
+      view.setUint32(28, sampleRate * 2, true); // Byte rate
+      view.setUint16(32, 2, true); // Block align
+      view.setUint16(34, 16, true); // Bits per sample
+      writeString(36, 'data');
+      view.setUint32(40, samples.length * 2, true);
+
+      // Write PCM samples (Float32 -> Int16)
+      let offset = 44;
+      for (let i = 0; i < samples.length; i++, offset += 2) {
+        let s = Math.max(-1, Math.min(1, samples[i]));
+        view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+      }
+      return buffer;
+    }
+
+    function handleFileUpload(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      audioBlob = file;
+      const preview = document.getElementById('audioPreview');
+      preview.src = URL.createObjectURL(file);
+      preview.style.display = 'block';
+
+      document.getElementById('audioStatusBadge').className = 'badge success';
+      document.getElementById('audioStatusBadge').textContent = `File: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+      document.getElementById('recordInstruction').textContent = `Loaded file: ${file.name}`;
+      document.getElementById('btnEvaluate').disabled = false;
+    }
+
+    // Evaluation Execution
+    async function evaluateSpeech() {
+      if (!audioBlob) return;
+      const expectedText = document.getElementById('expectedText').value.trim();
+      if (!expectedText) {
+        alert('Please enter a target German sentence.');
+        return;
+      }
+
+      const asrUrl = document.getElementById('asrUrl').value.trim();
+      const pronounceUrl = document.getElementById('pronounceUrl').value.trim();
+      const evalAlert = document.getElementById('evalAlert');
+      const btnEval = document.getElementById('btnEvaluate');
+      evalAlert.style.display = 'none';
+
+      btnEval.disabled = true;
+      btnEval.innerHTML = '<span>⏳</span> Evaluating...';
+
+      let asrResult = null;
+      let pronounceResult = null;
+      let asrError = null;
+      let pronounceError = null;
+
+      const filename = audioBlob.name || 'recording.wav';
+
+      // Step 1: Query ASR
+      try {
+        const formDataAsr = new FormData();
+        formDataAsr.append('file', audioBlob, filename);
+        formDataAsr.append('language', 'de');
+        if (currentMode === 'router') {
+          formDataAsr.append('model', 'qwen3-asr');
+        }
+
+        const resAsr = await fetch(asrUrl, {
+          method: 'POST',
+          body: formDataAsr,
+        });
+
+        if (!resAsr.ok) {
+          throw new Error(`HTTP ${resAsr.status}: ${await resAsr.text()}`);
+        }
+        asrResult = await resAsr.json();
+      } catch (err) {
+        asrError = err.message;
+      }
+
+      // Step 2: Query Pronounce
+      try {
+        const formDataPronounce = new FormData();
+        formDataPronounce.append('file', audioBlob, filename);
+        formDataPronounce.append('expected_text', expectedText);
+        formDataPronounce.append('lang', 'de');
+
+        const resPronounce = await fetch(pronounceUrl, {
+          method: 'POST',
+          body: formDataPronounce,
+        });
+
+        if (!resPronounce.ok) {
+          throw new Error(`HTTP ${resPronounce.status}: ${await resPronounce.text()}`);
+        }
+        pronounceResult = await resPronounce.json();
+      } catch (err) {
+        pronounceError = err.message;
+      }
+
+      btnEval.disabled = false;
+      btnEval.innerHTML = '<span>🚀</span> Assess Pronunciation';
+
+      if (asrError || pronounceError) {
+        evalAlert.innerHTML = `<strong>Evaluation Error:</strong><br>` +
+          (asrError ? `• ASR Error: ${asrError}<br>` : '') +
+          (pronounceError ? `• Pronounce Error: ${pronounceError}<br>` : '') +
+          `<small style="margin-top:0.4rem; display:block;">Check that the servers are running, the IP/ports are correct, and CORS is enabled.</small>`;
+        evalAlert.style.display = 'block';
+      }
+
+      if (asrResult || pronounceResult) {
+        displayResults(expectedText, asrResult, pronounceResult);
+      }
+    }
+
+    function displayResults(targetText, asrData, pronounceData) {
+      const resultsCard = document.getElementById('resultsCard');
+      resultsCard.style.display = 'flex';
+
+      // Target text
+      document.getElementById('compTarget').textContent = `"${targetText}"`;
+
+      // ASR text
+      const asrText = asrData && asrData.text ? asrData.text : (asrData ? JSON.stringify(asrData) : 'Failed / Unavailable');
+      document.getElementById('compAsr').textContent = asrText;
+
+      // Acoustic text
+      const acousticText = pronounceData && pronounceData.transcription ? pronounceData.transcription : 'Failed / Unavailable';
+      document.getElementById('compAcoustic').textContent = acousticText;
+
+      // Score
+      const score = pronounceData && typeof pronounceData.score === 'number' ? pronounceData.score : 0;
+      const per = pronounceData && typeof pronounceData.phoneme_error_rate === 'number' ? (pronounceData.phoneme_error_rate * 100).toFixed(1) : '--';
+      
+      const scoreCircle = document.getElementById('scoreCircle');
+      const scoreValue = document.getElementById('scoreValue');
+      const scoreBar = document.getElementById('scoreProgressBar');
+      const perValue = document.getElementById('perValue');
+      const feedback = document.getElementById('scoreFeedback');
+
+      scoreValue.textContent = Math.round(score);
+      scoreBar.style.width = `${Math.min(100, Math.max(0, score))}%`;
+      perValue.textContent = `PER: ${per}%`;
+
+      scoreCircle.className = 'score-circle';
+      scoreBar.className = 'progress-bar-fill';
+
+      if (score >= 80) {
+        scoreCircle.classList.add('green');
+        scoreBar.classList.add('green');
+        feedback.textContent = 'Excellent pronunciation! High phonetic accuracy and native-like clarity.';
+      } else if (score >= 60) {
+        scoreCircle.classList.add('yellow');
+        scoreBar.classList.add('yellow');
+        feedback.textContent = 'Good comprehension. Minor phoneme substitutions or vowel length discrepancies.';
+      } else {
+        scoreCircle.classList.add('red');
+        scoreBar.classList.add('red');
+        feedback.textContent = 'Noticeable pronunciation deviations detected. Review the flagged words below.';
+      }
+
+      // Phonetic errors table
+      const tbody = document.getElementById('errorsTableBody');
+      tbody.innerHTML = '';
+      const errors = (pronounceData && pronounceData.errors) ? pronounceData.errors : [];
+      const noErrorsBanner = document.getElementById('noErrorsBanner');
+
+      if (errors.length === 0) {
+        noErrorsBanner.style.display = 'flex';
+      } else {
+        noErrorsBanner.style.display = 'none';
+        errors.forEach(err => {
+          const tr = document.createElement('tr');
+          const conf = typeof err.confidence === 'number' ? (err.confidence * 100).toFixed(0) + '%' : '--';
+          tr.innerHTML = `
+            <td style="font-weight:600;">${err.word || '--'}</td>
+            <td class="ipa">/${err.expected_ipa || '--'}/</td>
+            <td class="ipa" style="color:var(--danger);">/${err.actual_ipa || '--'}/</td>
+            <td>${conf}</td>
+            <td><span class="badge danger">Mispronounced</span></td>
+          `;
+          tbody.appendChild(tr);
+        });
+      }
+
+      // Raw JSON
+      document.getElementById('rawJsonResponse').textContent = JSON.stringify({
+        asr: asrData,
+        pronounce: pronounceData
+      }, null, 2);
+
+      // Scroll to results smoothly
+      resultsCard.scrollIntoView({ behavior: 'smooth' });
+    }
+  </script>
+</body>
+</html>

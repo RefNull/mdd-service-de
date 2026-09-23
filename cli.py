@@ -12,14 +12,33 @@ Supports microphone capture via sounddevice and pre-recorded audio evaluation vi
 
 import argparse
 import io
+import os
 from pathlib import Path
 import sys
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
+# If not running inside an active virtualenv, re-execute with project .venv if available
+if sys.prefix == getattr(sys, "base_prefix", sys.prefix):
+    repo_dir = Path(__file__).resolve().parent
+    venv_python = (
+        repo_dir / ".venv" / "Scripts" / "python.exe"
+        if sys.platform == "win32"
+        else repo_dir / ".venv" / "bin" / "python"
+    )
+    if venv_python.is_file() and os.access(venv_python, os.X_OK):
+        if os.environ.get("_MDD_CLI_VENV_EXEC") != "1":
+            os.environ["_MDD_CLI_VENV_EXEC"] = "1"
+            os.execv(str(venv_python), [str(venv_python)] + sys.argv)
+
 import numpy as np
 import requests
-import sounddevice as sd
+
+try:
+    import sounddevice as sd
+except (ImportError, OSError):
+    sd = None
+
 import soundfile as sf
 
 
@@ -130,6 +149,15 @@ def record_audio(
     Record audio from the microphone until the user presses Enter.
     Returns 16-bit PCM WAV bytes at the specified samplerate.
     """
+    if sd is None:
+        raise RuntimeError(
+            "Microphone recording is unavailable: 'sounddevice' (or PortAudio library) is not loaded.\n"
+            "If running over SSH or on a headless server without microphone hardware:\n"
+            "  -> Use '--audio-file <path_to_audio.wav>' to evaluate pre-recorded audio.\n"
+            "  -> Or open 'client.html' in your browser to record audio with your client microphone.\n"
+            "  -> Or install PortAudio system libraries: 'sudo apt install libportaudio2' (Linux) or 'brew install portaudio' (macOS)."
+        )
+
     input_fn("Press Enter to start recording...")
     chunks: List[np.ndarray] = []
 
@@ -147,8 +175,10 @@ def record_audio(
             input_fn("Recording... Press Enter to stop.\n")
     except Exception as exc:
         raise RuntimeError(
-            f"Microphone recording failed: {exc}. "
-            "If running in a headless or automated environment, use --audio-file."
+            f"Microphone recording failed: {exc}.\n"
+            "If running over SSH or on a headless server without microphone hardware:\n"
+            "  -> Use '--audio-file <path_to_audio.wav>' to evaluate pre-recorded audio.\n"
+            "  -> Or open 'client.html' in your browser to record audio with your client microphone."
         ) from exc
 
     if not chunks:

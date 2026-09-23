@@ -22,6 +22,7 @@ import tempfile
 from typing import Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 import torch
 
 try:
@@ -50,6 +51,14 @@ app = FastAPI(
     title="OpenPronounce Assessment Service",
     description="FastAPI microservice wrapping OpenPronounce for German pronunciation assessment",
     version="1.0.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 

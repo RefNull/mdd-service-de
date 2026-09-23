@@ -329,3 +329,19 @@ def test_parse_args():
     assert custom.host == "127.0.0.1"
     assert custom.port == 8082
     assert custom.device == "cuda"
+
+
+def test_cors_headers(client):
+    """Verify CORS headers are present for cross-origin browser requests."""
+    response = client.options(
+        "/assess",
+        headers={
+            "Origin": "http://192.168.1.50:8000",
+            "Access-Control-Request-Method": "POST",
+        },
+    )
+    assert response.status_code == 200
+    assert response.headers.get("access-control-allow-origin") == "http://192.168.1.50:8000"
+    assert response.headers.get("access-control-allow-credentials") == "true"
+
+

@@ -220,6 +220,13 @@ python cli.py \
   --text "Ich habe morgen einen Termin beim Arzt."
 ```
 
+#### Headless & SSH Environments
+
+> [!TIP]
+> When connected over SSH or running on a headless server without audio hardware:
+> - Use `--audio-file <path.wav>` to evaluate pre-recorded audio non-interactively without requiring `sounddevice` or PortAudio.
+> - Or use the **Web Test Client (`client.html`)** below to record audio using your client machine's microphone in your web browser.
+
 #### CLI Options
 
 | Flag | Default | Description |
@@ -231,6 +238,29 @@ python cli.py \
 | `--router-url` | `http://localhost:8080` | `llama-swap` proxy URL (when `--direct` is false). |
 | `--audio-file` | `None` | Path to audio file (`.wav` or `.ogg`) for non-interactive evaluation. |
 | `--samplerate` | `16000` | Microphone capture sample rate in Hz. |
+
+### 5. Web Test Client (`client.html`) [Browser Testing]
+
+The repository includes a lightweight, zero-dependency HTML test client ([`client.html`](client.html)) for testing speech fluency and pronunciation assessment from any browser on your local network:
+
+1. **Open `client.html`** in your browser:
+   - Open it directly from your file manager or browser (`file:///path/to/client.html`), or
+   - Serve it via a local static server: `python -m http.server 8000` and visit `http://localhost:8000/client.html`.
+2. **Configure Backend Endpoints**:
+   - Enter your server's hostname or LAN IP (e.g. `192.168.1.50` or `localhost`).
+   - Select either **Direct (`serve.py`)** or **llama-swap Router** mode.
+   - Click **⚡ Check Connection** to ping the health check endpoints.
+   - Settings are automatically remembered in browser `localStorage`.
+3. **Record or Upload Audio**:
+   - Click **🎙️ Record** to record German speech using your client machine's microphone (encoded in real time to 16kHz mono WAV).
+   - Or drag-and-drop / upload any audio file (`.wav`, `.ogg`, `.webm`, `.mp3`).
+4. **Instant Diagnostic Results**:
+   - **Pronunciation Quality**: Visual score gauge (0–100) and Phoneme Error Rate (PER).
+   - **3-Way Comparison**: Target reference prompt vs Qwen3-ASR fluency transcription vs Wav2Vec2 acoustic transcription.
+   - **Phonetic Mismatches**: Aligned table highlighting mispronounced words with expected vs heard IPA and confidence scores.
+
+> [!NOTE]
+> **Microphone Security**: Browsers restrict microphone access to **Secure Contexts** (`localhost` or HTTPS). Opening `client.html` locally on your client machine (via `file://` or `http://localhost:...`) allows your browser microphone to record audio while sending cross-origin assessment requests across your LAN to the remote server.
 
 ---
 
